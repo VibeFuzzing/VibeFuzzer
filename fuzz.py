@@ -6,119 +6,82 @@ from pathlib import Path
 import shutil
 import json
 
-# Usage: python fuzz.py [target] [format]
 MODEL = 'llama3:latest'
-TARGET = ''
-FORMAT = ''
+
+# run AFLNet with "afl-fuzz"
+
+# enable core dumping in WSL: 
+# ulimit -c unlimited
+# echo core | sudo tee /proc/sys/kernel/core_pattern
+
+# almost working command: ./afl-fuzz -d -i seeds -o out -N tcp://127.0.0.1/9999 -P FTP -D 10000 -q 3 -s 3 -E -- ../vulnserver/vulnserver.exe
 
 
-def resolve_executable(target: str) -> str | None:
-    """Resolve a target name/path to an executable path.
-    Returns absolute path string if found, or None.
-    """
-    script_dir = Path(__file__).parent
 
-    # If empty target, nothing to do
-    if not target:
-        return None
 
-    p = Path(target)
 
-    # If target is absolute -> use it directly (but still try adding .exe on Windows)
-    if p.is_absolute():
-        candidate = p
-    else:
-        # Append the path parts to the script directory so "vulnerable/vuln"
-        # becomes script_dir / 'vulnerable' / 'vuln'
-        candidate = script_dir.joinpath(*p.parts)
 
-    # If candidate exists and is a file, return it (use .resolve() for absolute)
-    if candidate.exists() and candidate.is_file():
-        return str(candidate.resolve())
 
-    # On Windows: try adding .exe suffix to the candidate path
-    if os.name == 'nt':
-        maybe = candidate.with_suffix('.exe')
-        if maybe.exists() and maybe.is_file():
-            return str(maybe.resolve())
 
-    # If not found by path, try locating on PATH (shutil.which)
-    which = shutil.which(target)
-    if which:
-        return which
+def compile_target(target_dir: Path, target_name: str) -> Path:
+    target_exe = target_dir / target_name
 
-    # On Windows, try looking for target + .exe on PATH too
-    if os.name == 'nt':
-        which_exe = shutil.which(target + '.exe')
-        if which_exe:
-            return which_exe
+    if not target_exe.exists():
+        subprocess.run(
+            [
+                "gcc", "-o", str(target_exe), str(target_dir / (target_name + ".c")), "-fsanitize=address,fuzzer",
+            ],
+            check=True
+        )
+    return target_exe
 
-    return None
+
+def run_aflnet(target_binary: str, input_dir: str, output_dir: str):
+    cmd = [
+        'afl-fuzz',
+        '-i', input_dir,      # input corpus directory
+        '-o', output_dir,     # output directory
+        '-P', 'POC',          # protocol (POC for generic, or LDP, DNS, SMTP, etc.)
+        '-D', '5000',         # durations in ms (optional)
+        target_binary         # target binary
+    ]
+
+    try:
+        subprocess.run(cmd, check=True)
+    except FileNotFoundError:
+        print("Error: AFLnet not found. Please install it first.")
+        print("Install: sudo apt-get install afl-net (or build from source)")
+    except subprocess.CalledProcessError as e:
+        print(f"Error running AFLNet: {e}")
+        sys.exit(1)
+
 
 def main():
-    global TARGET, FORMAT
-
+    
     if len(sys.argv) < 2:
         print("Usage: python fuzz.py [target]")
         sys.exit(1)
 
-    TARGET = resolve_executable(sys.argv[1])
-    FORMAT = resolve_executable(sys.argv[2])
+    target = sys.argv[1]
 
-    with open(FORMAT, 'r') as file:
-        format_str = file.read().strip()
+    target_exe = compile_target(Path('.'), target)
+
+    # Create input and output directories
+    input_dir = Path('corpus')
+    output_dir = Path('fuzzing_results')
     
-    system = ''
-    with open('system.txt', 'r') as file:
-        system = file.read()
+    input_dir.mkdir(exist_ok=True)
+    output_dir.mkdir(exist_ok=True)
+    
+    # Create initial seed inputs
+    seed_file = input_dir / 'seed.txt'
+    if not seed_file.exists():
+        seed_file.write_text('aa %c%c')
+    
+    # Run AFLnet
+    run_aflnet(str(target_exe), str(input_dir), str(output_dir))
 
-    memory = 'All I know is that an example input is "' + format_str + '". I should try it to figure out what happens.'
-    while True:
-        output_str = ''
-        try:
-            output_str = ollama.generate(model=MODEL, prompt=memory, system=system).response
-        except Exception as e:
-            print('\nError running ollama.generate:', e)
-            print('If the model is installed but you still see errors, try running the model with the CLI:')
-            print(f'  ollama run {MODEL}')
-            sys.exit(1)
-
-        try:
-            cases = json.loads(output_str)['input']
-        except Exception as e:
-            print('output string ("' + output_str + '") had non-JSON data, retrying...')
-            continue
-
-        print('Trying "' + cases + '"...')
-        try:
-            res = subprocess.run([TARGET] + cases.split(' '), capture_output=True, text=True, timeout=10)
-        except Exception as e:
-            print('attempted input could not be correctly executed by the fuzzer, retrying...')
-            continue
-        
-        response = ''
-        if res.returncode == 0:
-            response = 'The program, unfortunately, ran without error.'
-        elif res.returncode < 0:
-            response = 'The program crashed with an exit code of ' + str(res.returncode) + '.'
-        elif res.returncode > 0:
-            response = 'The program exited with an error code of ' + str(res.returncode) + '.'
-        print('Response:', response)
-        response += ' Responding conversationally, how would you summarize what you know for the next iteration?'
-
-        messages = [{'role': 'system', 'content': system}, {'role': 'user', 'content': memory}, {'role': 'assistant', 'content': output_str}, {'role': 'user', 'content': response}]
-
-        try:
-            output_str = ollama.chat(model=MODEL, messages=messages).message.content
-        except Exception as e:
-            print('\nError running ollama.chat:', e)
-            print('If the model is installed but you still see errors, try running the model with the CLI:')
-            print(f'  ollama run {MODEL}')
-            sys.exit(1)
-        
-        memory = 'As a reminder, my initial example to try was "' + format_str + '", and the input I tried this time was "' + cases + '". ' + output_str
-        print('New memory:', memory)
 
 
 if __name__ == '__main__':
-  main()
+    main()
