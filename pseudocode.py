@@ -1,4 +1,6 @@
-#AFLnet ProFTPd Website Fuzzing – pseudocode
+#AFLnet Website Fuzzing – pseudocode
+# - this doesnt include llama
+# - this doesnt generate seeds in any way
 
 
 
@@ -94,6 +96,12 @@ def analyze_crash(crash_file):
     run(f"replay_input_over_network {crash_file}")
     run("gdb ./server_binary")
     classify_bug()
+
+
+
+""" Main """"
+
+
 
 def main(target):
     """
