@@ -6,10 +6,10 @@ import subprocess
 from pathlib import Path
 from typing import Optional
 
-import ollama
+# import ollama
 
 
-MODEL = 'llama3:latest'
+# MODEL = 'llama3:latest'
 
 
 ''' NOTE TO SELF:
@@ -24,7 +24,7 @@ MODEL = 'llama3:latest'
 * could use argparse for command line arguments
 
 * working command:
-* python3 fuzz.py ../proftpd proftpd FTP 21 127.0.0.1 none ./fuzzing_inputs ./fuzzing_output
+* python3 fuzz.py ../proftpd proftpd FTP 2121 127.0.0.1 /home/mkotlarz/sd/proftpd/fuzz.conf ./fuzzing_inputs ./fuzzing_output
 
 '''
 
@@ -39,30 +39,33 @@ def setup_environment():
     """
     print("[*] Setting up AFL environment variables...")
 
-    # ------------------------------------------------------------------
     # Verify afl-fuzz exists (AFLNet runs via afl-fuzz)
-    # ------------------------------------------------------------------
     afl_fuzz_path = shutil.which("afl-fuzz")
     if afl_fuzz_path is None:
         raise EnvironmentError("afl-fuzz not found in PATH.")
 
     print(f"[*] Found afl-fuzz at: {afl_fuzz_path}")
 
-    # ------------------------------------------------------------------
+    # Derive AFL installation path from afl-fuzz location and set AFL_PATH
+    afl_dir = str(Path(afl_fuzz_path).resolve().parent)
+
     # Set AFL / AFLNet environment variables
-    # ------------------------------------------------------------------
     env_vars = {
         "CC": "afl-clang-fast",
         "CXX": "afl-clang-fast++",
         "CFLAGS": "-O0 -g",
         "AFLNET": "1",
         "AFL_SKIP_CPUFREQ": "1",
-        "ASAN_OPTIONS": "abort_on_error=1:detect_leaks=0:symbolize=0"
+        "ASAN_OPTIONS": "abort_on_error=1:detect_leaks=0:symbolize=0",
+        "AFL_PATH": afl_dir,
     }
 
+    # Export environment variables
     for key, value in env_vars.items():
         os.environ[key] = value
         print(f"    {key}={value}")
+
+    print(f"[*] Set AFL_PATH to: {afl_dir} (helps afl-clang-fast find runtime files)")
 
 
 def build_target(
@@ -75,18 +78,21 @@ def build_target(
     Compile the website/server backend with AFL instrumentation
     Returns the path to the instrumented binary
     """
-    
+
+    # Check source directory exists
     source_path = Path(source_dir).resolve()
 
     if not source_path.exists():
         raise FileNotFoundError(f"Source directory not found: {source_path}")
     
+    # Possible binary locations
     search_paths = [
         source_path / binary_name,
         source_path / "src" / binary_name,
         source_path / "bin" / binary_name,
     ]
 
+    # Check for existing instrumented binary
     for path in search_paths:
         if path.exists() and path.is_file():
             if verify_instrumentation(path, fatal=False):
@@ -101,25 +107,36 @@ def build_target(
     # Configure
     if Path("./configure").exists():
         print("[*] Running configure...")
-        if configure_args:
-            cmd = f"./configure {configure_args}"
+        if make_args:
+            subprocess.run(f"./configure CC=afl-clang-fast CXX=afl-clang-fast++ {make_args}", shell=True, check=True)
         else:
-            cmd = "./configure"
-        subprocess.run(cmd, shell=True, check=True)
+            subprocess.run("./configure CC=afl-clang-fast CXX=afl-clang-fast++", shell=True, check=True)
 
     # Clean and build
     print("[*] Cleaning previous build...")
     subprocess.run("make clean", shell=True, check=True)
 
+    # Build with AFL instrumentation
     print("[*] Compiling with AFL instrumentation...")
     if make_args:
         subprocess.run(f"make {make_args}", shell=True, check=True)
     else:
         subprocess.run("make", shell=True, check=True)
 
-    
-    verify_instrumentation(source_path, fatal=True)
+    # Possible binary locations
+    search_paths = [
+        source_path / binary_name,
+        source_path / "src" / binary_name,
+        source_path / "bin" / binary_name,
+    ]
 
+    # Check for existing instrumented binary
+    for path in search_paths:
+        if path.exists() and path.is_file():
+            if verify_instrumentation(path):
+                source_path = path.resolve()
+                break
+                
     print(f"[*] Binary located at: {source_path}")
 
     return source_path
@@ -157,6 +174,7 @@ def verify_instrumentation(binary_path: Path, fatal: bool = True) -> bool:
     return False
 
 def check_server_alive(ip: str, port: int, timeout=2):
+    # Check if the server is reachable
     try:
         with socket.create_connection((ip, port), timeout=timeout):
             return True
@@ -195,7 +213,7 @@ def run_aflnet(config: str, binary: str, input_dir: str, output_dir: str, protoc
     # Only add config if provided
     if config is not None:
         afl_cmd.extend(["-c", config])
-
+ 
     print("[*] AFLNet command:")
     print(" ".join(afl_cmd))
 
