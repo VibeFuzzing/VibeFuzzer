@@ -22,6 +22,7 @@ from typing import Optional
 
 * could create a target struct that contains all the data from the arguments
 * could use argparse for command line arguments
+* spawn subprocess and get handle instead
 
 * working command:
 * python3 fuzz.py ../proftpd proftpd FTP 2121 127.0.0.1 /home/mkotlarz/sd/proftpd/fuzz.conf ./fuzzing_inputs ./fuzzing_output
@@ -107,8 +108,8 @@ def build_target(
     # Configure
     if Path("./configure").exists():
         print("[*] Running configure...")
-        if make_args:
-            subprocess.run(f"./configure CC=afl-clang-fast CXX=afl-clang-fast++ {make_args}", shell=True, check=True)
+        if configure_args:
+            subprocess.run(f"./configure CC=afl-clang-fast CXX=afl-clang-fast++ {configure_args}", shell=True, check=True)
         else:
             subprocess.run("./configure CC=afl-clang-fast CXX=afl-clang-fast++", shell=True, check=True)
 
@@ -207,7 +208,7 @@ def run_aflnet(config: str, binary: str, input_dir: str, output_dir: str, protoc
         "-t", "10000+", # Execution timeout
         "--",
         binary,
-        "-n"
+        "-n"            # TODO: do we need this?
     ]
 
     # Only add config if provided
@@ -240,6 +241,7 @@ def main():
 
     # Check minimum arguments
     if len(sys.argv) < 5:
+        # TODO: update usage with optional arguments (IP)
         print("""Usage:
         python3 fuzz.py <target_dir> <binary> <protocol> <port> [config] [input_dir] [output_dir]
 
