@@ -194,7 +194,7 @@ def generate_seeds():
 # FUZZING ENGINE
 # ============================================================================
 
-def run_aflnet(config: str, binary: str, input_dir: str, output_dir: str, protocol: str, ip: str, port: int):
+def run_aflnet(config: str, binary: str, input_dir: str, output_dir: str, protocol: str, ip: str, port: int) -> subprocess.Popen:
     # Build AFLNet command
     afl_cmd = [
         "afl-fuzz",
@@ -221,12 +221,10 @@ def run_aflnet(config: str, binary: str, input_dir: str, output_dir: str, protoc
     # Run AFLNet
     print("[*] Starting AFLNet fuzzing...")
     try:
-        subprocess.run(afl_cmd, check=True)
+        return subprocess.Popen(afl_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     except FileNotFoundError:
         print("Error: AFLnet not found. Please install it first.")
         print("Install: sudo apt-get install afl-net (or build from source)")
-    except subprocess.CalledProcessError as e:
-        print(f"Error running AFLNet: {e}")
         sys.exit(1)
 
 # ============================================================================
@@ -309,7 +307,7 @@ def main():
             seed_file.write_text('aa %c%c')
 
         # Start AFLNet fuzzing
-        run_aflnet(
+        aflnet_handle = run_aflnet(
             config=config_file,
             binary=str(binary_path),
             input_dir=input_dir,
@@ -318,6 +316,9 @@ def main():
             ip=ip_addr,
             port=port
         )
+
+        # TODO: run LLM in concurrent loop (for now we just run AFLNet on its own)
+        aflnet_handle.wait()
 
     # Exception handling
     except KeyboardInterrupt:
