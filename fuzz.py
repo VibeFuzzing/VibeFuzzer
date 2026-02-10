@@ -20,9 +20,7 @@ from typing import Optional
 * ulimit -c unlimited
 * echo core | sudo tee /proc/sys/kernel/core_pattern
 
-* could create a target struct that contains all the data from the arguments
-* could use argparse for command line arguments
-* spawn subprocess and get handle instead
+* TODO could create a target @dataclass and/or @struct that contains all the data from the arguments
 
 * working command:
 * python3 fuzz.py ../proftpd proftpd FTP 2121 127.0.0.1 /home/mkotlarz/sd/proftpd/fuzz.conf ./fuzzing_inputs ./fuzzing_output
@@ -175,6 +173,8 @@ def verify_instrumentation(binary_path: Path, fatal: bool = True) -> bool:
     return False
 
 def check_server_alive(ip: str, port: int, timeout=2):
+    # TODO: Check if port is open
+
     # Check if the server is reachable
     try:
         with socket.create_connection((ip, port), timeout=timeout):
@@ -183,7 +183,7 @@ def check_server_alive(ip: str, port: int, timeout=2):
         return False
 
 # ============================================================================
-# SEED GENERATION
+# LLM INTERACTION
 # ============================================================================
 
 def generate_seeds():
@@ -221,7 +221,13 @@ def run_aflnet(config: str, binary: str, input_dir: str, output_dir: str, protoc
     # Run AFLNet
     print("[*] Starting AFLNet fuzzing...")
     try:
-        return subprocess.Popen(afl_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        # use subprocess.Popen to run afl-fuzz and have a handler to manage it (e.g. for concurrent LLM loop)
+        return subprocess.Popen(
+            afl_cmd, 
+            stdout=subprocess.PIPE, 
+            stderr=subprocess.PIPE,
+            text=True
+            )
     except FileNotFoundError:
         print("Error: AFLnet not found. Please install it first.")
         print("Install: sudo apt-get install afl-net (or build from source)")
@@ -237,17 +243,18 @@ def main():
     Main entry point for AFLNet fuzzing
     """
 
+    # TODO could use argparse for command line arguments
     # Check minimum arguments
     if len(sys.argv) < 5:
-        # TODO: update usage with optional arguments (IP)
         print("""Usage:
-        python3 fuzz.py <target_dir> <binary> <protocol> <port> [config] [input_dir] [output_dir]
+        python3 fuzz.py <target_dir> <binary> <protocol> <port> <ip_addr> [config] [input_dir] [output_dir]
 
         Positional Arguments:
             target_dir   - Path to target server source directory
             binary       - Name of the binary to fuzz
             protocol     - Protocol to fuzz (FTP, HTTP, SMTP, RTSP, DNS, SIP)
             port         - Port number the server runs on
+            ip_addr      - (Optional) IP address of the server (default:
             config       - (Optional) Path to server configuration file
             input_dir    - (Optional) Input seeds directory (default: ./fuzzing_inputs)
             output_dir   - (Optional) Output directory (default: ./fuzzing_output)""")
@@ -264,6 +271,9 @@ def main():
     config_file = sys.argv[6] if len(sys.argv) > 6 and sys.argv[6] != 'none' else None
     input_dir = sys.argv[7] if len(sys.argv) > 7 else './fuzzing_inputs'
     output_dir = sys.argv[8] if len(sys.argv) > 8 else './fuzzing_output'
+    # TODO add optional arguments to configure and make for more complex builds
+    # TODO check if config file is valid
+    # TODO check if input and output directories are valid (or create them)
     
     # Validate protocol
     valid_protocols = ['FTP', 'HTTP', 'SMTP', 'RTSP', 'DNS', 'SIP']
@@ -296,11 +306,13 @@ def main():
         binary_path = build_target( # Build target
             source_dir=target_dir,
             binary_name=binary_name,
+            # TODO add optional arguments to configure and make for more complex builds
             configure_args=None,
             make_args=None
         )
  
         # Create initial seed inputs
+        # TODO generate seeds 
         Path(input_dir).mkdir(parents=True, exist_ok=True)
         seed_file = Path(input_dir) / 'seed.txt'
         if not seed_file.exists():
@@ -319,6 +331,10 @@ def main():
 
         # TODO: run LLM in concurrent loop (for now we just run AFLNet on its own)
         aflnet_handle.wait()
+
+        # TODO: After fuzzing completes, we can analyze results, generate reports, etc.
+        # TODO: Process cleanup 
+        # TODO: Add While loop for user intervention 
 
     # Exception handling
     except KeyboardInterrupt:
