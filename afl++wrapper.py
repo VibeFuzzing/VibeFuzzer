@@ -16,38 +16,29 @@ valid_protocols = ['FTP', 'HTTP', 'SMTP', 'RTSP', 'DNS', 'SIP']
 # ============================================================================
 # COMPILE MUTATOR
 # ============================================================================
-def build_c_mutator(
-    source_file: str, 
-    afl_include_dir: str = "/usr/local/include/afl"
-    ) -> str:
-    """ 
-    Compiles the C mutator to a shared object. Returns the path to the compiled .so file.
+def build_c_mutator(source_dir: str) -> str:
     """
-    # Check source file exists
-    source_path = Path(source_file).resolve()
+    Runs `make` inside mutator directory.
+    Returns path to compiled .so.
+    """
+
+    source_path = Path(source_dir).resolve()
     if not source_path.exists():
-        raise FileNotFoundError(f"Mutator source not found: {source_path}")
+        raise FileNotFoundError(f"Mutator directory not found: {source_path}")
 
-    # Output .so in the same directory as the source file, with the same base name but .so extension
-    output_so = str(source_path.parent / "llm_mutator.so")
-    print(f"[*] Compiling C mutator: {source_path} -> {output_so}")
+    print(f"[*] Building mutator using Makefile in {source_path}")
 
-    # Compile the C mutator to a shared library (.so) that can be loaded by AFL++.
-    compile_cmd = [
-        "gcc",
-        "-shared",          # produce a shared library
-        "-fPIC",            # position-independent code (required for .so)
-        "-O3",              # optimise — mutator is on the hot path
-        "-I", afl_include_dir,
-        str(source_path),
-        "-o", output_so,
-    ]
+    subprocess.run(["make"], cwd=source_path, check=True)
 
-    # TODO: Add error handling for compilation errors, missing headers, etc.
-    print(f"    {' '.join(compile_cmd)}")
-    subprocess.run(compile_cmd, check=True)
-    print(f"[*] Mutator compiled: {output_so}")
-    return str(Path(output_so).resolve())
+    # Find produced .so
+    so_files = list(source_path.glob("*.so"))
+    if not so_files:
+        raise RuntimeError("No .so file produced by make.")
+
+    mutator_so = so_files[0].resolve()
+    print(f"[*] Mutator built: {mutator_so}")
+
+    return str(mutator_so)
 
 # ============================================================================
 # ENVIRONMENT SETUP (AFL++)
