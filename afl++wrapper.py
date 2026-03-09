@@ -197,7 +197,7 @@ PROTOCOL_HINTS = {
             'Accept: */*\r\n'
             '\r\n'
         ),
-        'notes': 'Request line + headers + blank line + optional body. Methods: GET, POST, PUT, DELETE, HEAD, OPTIONS, PATCH.',
+        'notes': 'Request line + headers + blank line + optional body. Methods: GET, POST, PUT, DELETE, HEAD, OPTIONS, PATCH. All lines MUST end with \\r\\n, including the blank line separating headers from body.',
     },
     'SMTP': {
         'description': 'Simple Mail Transfer Protocol — email delivery over TCP',
@@ -253,10 +253,15 @@ def build_seed_prompt(protocol: Optional[str], binary_name: str, seed_index: int
     prompt_parts = [
         "You are a network protocol fuzzing expert. Your job is to generate test inputs "
         "that will be used as initial seeds for AFL++ fuzzing of a network server.\n\n"
+        "You are generating CLIENT REQUESTS that will be sent TO the server. "
+        "Do NOT generate server responses (e.g. do NOT output lines like 'HTTP/1.1 200 OK' "
+        "or '220 Welcome' or any response status lines). The server will never receive its "
+        "own responses as input — only client requests.\n\n"
         "CRITICAL OUTPUT RULES:\n"
         "- Output ONLY the raw seed content. No explanation, no markdown, no code blocks.\n"
         "- Do not wrap output in quotes or backticks.\n"
-        "- The output will be written directly to a file and fed to the target binary.\n\n"
+        "- The output will be written directly to a file and fed to the target binary.\n"
+        "- Generate ONLY a single client request per seed.\n\n"
     ]
 
     # If we have protocol-specific hints, include them
@@ -310,6 +315,47 @@ def verify_ollama_connection(base_url: str = OLLAMA_BASE_URL) -> bool:
             f"Cannot connect to Ollama at {base_url}. "
             "Is it running? Start with: ollama serve"
         )
+
+
+def clean_llm_output(raw: str) -> str:
+    """
+    Strips LLM commentary and artifacts from generated seed content.
+    The LLM sometimes adds explanatory notes, markdown formatting, or
+    other text that would corrupt the seed if written to disk.
+    Also converts literal escape sequences (e.g. the text \r\n) into
+    actual bytes, since the LLM often reproduces escape sequences as text.
+    """
+    lines = raw.split('\n')
+    cleaned = []
+    for line in lines:
+        stripped = line.strip()
+        # Skip lines that are clearly LLM commentary, not protocol data
+        if stripped.startswith('(') and stripped.endswith(')'):
+            continue  # e.g. "(Note: I've left out the User-Agent value...)"
+        if stripped.startswith('```'):
+            continue  # markdown code fences
+        if stripped.startswith('Note:') or stripped.startswith('NOTE:'):
+            continue
+        if stripped.startswith('#') and not stripped.startswith('##'):
+            # Skip markdown headers but keep things like HTTP fragments
+            # that might start with # in edge cases
+            if any(word in stripped.lower() for word in ['explanation', 'note', 'comment', 'output']):
+                continue
+        cleaned.append(line)
+
+    result = '\n'.join(cleaned).strip()
+
+    # Convert literal escape sequences the LLM writes as text into actual bytes.
+    # The LLM sees \r\n in the prompt examples and often outputs the literal characters
+    # \ r \ n instead of actual carriage return + newline.
+    result = result.replace('\\r\\n', '\r\n')
+    result = result.replace('\\n', '\n')
+    result = result.replace('\\r', '\r')
+    result = result.replace('\\t', '\t')
+    result = result.replace('\\x00', '\x00')
+    result = result.replace('\\0', '\x00')
+
+    return result
 
 
 def generate_llm_seeds(
@@ -385,6 +431,7 @@ def generate_llm_seeds(
             )
 
             seed_content = response['response'].strip()
+            seed_content = clean_llm_output(seed_content)
 
             # Basic validation — don't write empty seeds
             if not seed_content:
