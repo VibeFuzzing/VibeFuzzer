@@ -6,7 +6,6 @@ import argparse
 from pathlib import Path
 from typing import Optional
 
-
 import ollama
 
 MODEL = 'llama3.1:8b'
@@ -45,11 +44,11 @@ def build_c_mutator(source_dir: str) -> str:
 # ============================================================================
 # ENVIRONMENT SETUP (AFL++)
 # ============================================================================
-def setup_aflpp_env(mutator_path: str, libdesock_path: str):
+def setup_aflpp_env(libdesock_path: str, mutator_path: Optional[str] = None) -> dict:
     """
     Does NOT mutate os.environ globally — env is passed directly to subprocess.Popen so the parent process stays clean.
     """
-    print("[*] Configuring AFL++ and libdesock environment...")
+    print("[*] Configuring AFL++, Custom mutator, and libdesock environment...")
 
     # Verify afl-fuzz exists
     afl_fuzz_path = shutil.which("afl-fuzz")
@@ -64,29 +63,29 @@ def setup_aflpp_env(mutator_path: str, libdesock_path: str):
         raise FileNotFoundError(f"libdesock not found at: {libdesock_resolved}")
     print(f"[*] libdesock will be LD_PRELOADed: {libdesock_resolved}")
 
-    # Verify mutator .so exists (built before this is called)
-    mutator_resolved = Path(mutator_path).resolve()
-    if not mutator_resolved.exists():
-        raise FileNotFoundError(f"LLM mutator .so not found at: {mutator_resolved}")
-    print(f"[*] LLM mutator .so found at: {mutator_resolved}")
-
-    # Set environment variables for AFL++ and libdesock. 
     env = os.environ.copy()
-    # This env dict will be passed to subprocess.Popen when launching afl-fuzz, so it only affects the child process.
     env.update({
-        # Use AFL++ compilers that support instrumentation
         "CC":                                    "afl-clang-fast",
         "CXX":                                   "afl-clang-fast++",
         "AFL_PATH":                              afl_path,
-        # Preload libdesock to intercept network calls -> redirect to stdin/stdout
-        "LD_PRELOAD":                            str(libdesock_resolved),
-        # Load C mutator — afl_custom_fuzz() is called IN ADDITION to AFL++ built-ins
-        "AFL_CUSTOM_MUTATOR_LIBRARY":            str(mutator_resolved),
-        "AFL_CUSTOM_MUTATOR_ONLY":               "0",   # keep AFL++ built-in mutations ON
+        "AFL_PRELOAD":                           str(libdesock_resolved),
+        "AFL_TMPDIR":                            "/tmp",
         "AFL_SKIP_CPUFREQ":                      "1",
-        "AFL_I_DONT_CARE_ABOUT_MISSING_CRASHES": "1",  # needed in Docker/WSL
-        "ASAN_OPTIONS":                          "abort_on_error=1:detect_leaks=0",
+        "AFL_I_DONT_CARE_ABOUT_MISSING_CRASHES": "1",
+        "ASAN_OPTIONS":                          "abort_on_error=1:detect_leaks=0:symbolize=0",
     })
+
+    # TODO: update based on new mutator design and configuration options. For example,
+    # we may want to pass additional config via env vars (e.g. for mutator behavior, LLM options, etc.)
+    # Only load custom mutator if one is provided
+    if mutator_path:
+        mutator_resolved = Path(mutator_path).resolve()
+        if not mutator_resolved.exists():
+            raise FileNotFoundError(f"Mutator .so not found at: {mutator_resolved}")
+        print(f"[*] Custom mutator .so: {mutator_resolved}")
+        env["AFL_CUSTOM_MUTATOR_LIBRARY"] = str(mutator_resolved)
+        env["AFL_CUSTOM_MUTATOR_ONLY"]    = "0"
+        env["DUMMY_MUTATOR_DELAY"]        = "60"  # dump telemetry every 60s
 
     return env
 
@@ -126,7 +125,7 @@ def build_target(
     os.chdir(source_path)
 
     # Assumes a standard build system with ./configure && make
-    # TODO??: Add support for CMake, Meson, or custom build systems if needed
+    # TODO: Add support for CMake, Meson, or custom build systems if needed
     if Path("./configure").exists():
         cfg = "CC=afl-clang-fast CXX=afl-clang-fast++ ./configure"
         if configure_args:
@@ -471,13 +470,14 @@ def run_aflpp(
     output_dir: str,
     env: dict,
     extra_afl_args: Optional[list] = None,
+    target_args: Optional[list] = None,
 ) -> subprocess.Popen:
     """
     Launches afl-fuzz. LD_PRELOAD (libdesock) and AFL_CUSTOM_MUTATOR_LIBRARY (.so) are in `env`
     """
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
-    # Build AFLNet command
+    # Build AFL++ command
     aflpp_cmd = [
         "afl-fuzz",
         "-i", input_dir,
@@ -486,7 +486,7 @@ def run_aflpp(
         "-t", "5000+",   # 5s timeout; '+' = lenient on slow starts
     ]
 
-    # Add any extra AFL++ args from the command line (e.g. -d for deterministic mode, -x for dictionary, etc.)
+    # Add AFL++ args BEFORE the -- separator
     if extra_afl_args:
         aflpp_cmd += extra_afl_args
 
@@ -494,18 +494,23 @@ def run_aflpp(
     # For network services, we typically just specify the binary and let libdesock handle the I/O redirection.
     aflpp_cmd += ["--", binary]
 
+    # Then binary and target args AFTER --
+    if target_args:
+        aflpp_cmd += target_args
+
     print("[*] AFL++ Command:")
     print("    " + " ".join(aflpp_cmd))
     print()
 
-    # Run AFLNet
+    # Run AFL++
     print("[*] Starting AFL++ fuzzing...")
     try:
-        # use subprocess.Popen to run afl-fuzz and have a handler to manage it (e.g. for concurrent LLM loop)
+        # use subprocess.Popen to run afl-fuzz and have a handler 
+        # TODO: we may want to capture stdout/stderr for GUI
         return subprocess.Popen(
             aflpp_cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stdout=None,  # <-- change from subprocess.PIPE
+            stderr=None,  # <-- change from subprocess.PIPE
             text=True,
             env=env
         )
@@ -521,6 +526,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="AFL++ + libdesock + C based LLM mutator fuzzing wrapper",
         formatter_class=argparse.RawDescriptionHelpFormatter,
+        # TODO: update examples after finalizing CLI design and configuration options
         epilog=
         """
         Examples:
@@ -534,6 +540,8 @@ def parse_args() -> argparse.Namespace:
             --no-build --output ./out
         """,
         )
+
+    parser.add_argument("--no-mutator",     action="store_true")
 
     parser.add_argument("target_dir",           help="Target server source directory")
     parser.add_argument("binary",               help="Binary name to fuzz")
@@ -556,8 +564,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--make-args",          default=None, help="Extra args for make")
     parser.add_argument("--no-build",           action="store_true",
                                                 help="Skip target build — binary must already be instrumented")
+
+
     parser.add_argument("--afl-args",           nargs=argparse.REMAINDER, default=[],
-                                                help="Extra flags forwarded to afl-fuzz (place last)")
+                                                help="Extra flags for afl-fuzz itself (e.g. -p fast)")
+    parser.add_argument("--target-args",        nargs=argparse.REMAINDER, default=[],
+                                                help="Args passed to the target binary after --")
 
     return parser.parse_args()
 
@@ -567,7 +579,7 @@ def parse_args() -> argparse.Namespace:
 # ============================================================================
 def main() -> int:
     """
-    Main entry point for AFLNet fuzzing
+    Main entry point for AFL++ fuzzing
     """
     # setup arguments and configuration
     args = parse_args()
@@ -580,19 +592,20 @@ def main() -> int:
 
     # Main fuzzing workflow
     try:
-        # 1. Compile llm_mutator.c -> llm_mutator.so
-        mutator_so = build_c_mutator(
-            source_file=args.mutator_src,
-            afl_include_dir=args.afl_include,
-        )
+        # 1. Build custom mutator 
+        mutator_so = None
+        if not args.no_mutator:
+            mutator_so = build_c_mutator(
+                source_dir=args.mutator_src
+            )
 
-        # 2. Validate all paths, build child-process environment dict
+        # 2. Build environment
         env = setup_aflpp_env(
-            mutator_path=mutator_so,
             libdesock_path=args.libdesock,
+            mutator_path=mutator_so,
         )
 
-        # 3. Build instrumented target (skippable with --no-build)
+        # 3. Build instrumented target
         if args.no_build:
             # If skipping build, we assume the user has already built the target binary with AFL++ instrumentation.
             # We just need to verify it exists and is instrumented.
@@ -639,6 +652,7 @@ def main() -> int:
             output_dir=args.output,
             env=env,
             extra_afl_args=args.afl_args or None,
+            target_args=args.target_args or None,
         )
 
         # TODO: run LLM in concurrent loop (for now we just run AFL++ on its own)
