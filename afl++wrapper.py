@@ -478,6 +478,12 @@ def run_aflpp(
     
     run_env = env.copy()
 
+    # ISOLATED RAM DISK: Prevent instance collisions
+    instance_tmp_dir = f"/tmp/afl_tmp_{instance_name}"
+    os.makedirs(instance_tmp_dir, exist_ok=True)
+    run_env["AFL_TMPDIR"] = instance_tmp_dir
+    run_env["AFL_NO_UI"] = "1"
+
     # TODO: update based on new mutator design and configuration options. For example,
     # we may want to pass additional config via env vars (e.g. for mutator behavior, LLM options, etc.)
     # Only load custom mutator if one is provided
@@ -496,6 +502,10 @@ def run_aflpp(
         # 3. Pass API configurations down to the C code (ollama.c)
         run_env["OLLAMA_URL"]   = OLLAMA_BASE_URL
         run_env["OLLAMA_MODEL"] = "afl-mutator"
+
+        # TODO: remove once we have LLM mutator 
+        # temp var for dummy mutator
+        run_env["DUMMY_MUTATOR_DELAY"] = "60"
         
         print(f"[*] Injecting custom LLM mutator environment for {instance_name}: {mutator_so}")
 
@@ -505,17 +515,21 @@ def run_aflpp(
     # build primary vs secondary command based on instance_name
     if instance_name == "primary":
         # Primary node: starts with the seed corpus and does the main fuzzing work.
-        aflpp_cmd += ["-M", "primary", "-i", input_dir]
-        out_dest = None  # primary owns the terminal UI
+        aflpp_cmd += [
+            "-M", "primary",
+            "-i", input_dir
+        ]
+        # primary owns the terminal UI
+        out_dest = None  
 
     else:
         # Secondary node: syncs with primary and focuses on mutating inputs from the queue.
-        aflpp_cmd += ["-S", instance_name, "-i", input_dir]
-        run_env["AFL_NO_UI"] = "1"
-        run_env["DUMMY_MUTATOR_DELAY"] = "60"
+        aflpp_cmd += [
+            "-S", instance_name,
+            "-i", input_dir
+        ]
         Path(output_dir).mkdir(parents=True, exist_ok=True)
         out_dest = open(f"{output_dir}/{instance_name}.log", "w")  # capture, don't discard
-
 
     aflpp_cmd += [
         "-o", output_dir,
@@ -541,7 +555,7 @@ def run_aflpp(
     print(f"  AFL++ {instance_name.upper()} INSTANCE")
     print(f"{'─' * 60}")
     print(f"  {'Binary':<18} {binary}")
-    print(f"  {'Input':<18} {input_dir if instance_name == 'primary' else '- (sync from primary)'}")
+    print(f"  {'Input':<18} {input_dir}")
     print(f"  {'Output':<18} {output_dir}")
     print(f"  {'Mutator':<18} {mutator_so if mutator_so else 'AFL++ built-in (havoc/splice)'}")
     if target_args:
@@ -549,6 +563,7 @@ def run_aflpp(
     print(f"{'─' * 60}")
     print(f"  CMD: afl-fuzz {' '.join(aflpp_cmd[1:])}")
     print(f"{'─' * 60}\n")
+
     try:
         # use subprocess.Popen to run afl-fuzz and have a handler 
         # TODO: we may want to capture stdout/stderr for GUI
@@ -558,6 +573,7 @@ def run_aflpp(
             stderr=out_dest,
             text=True,
             env=run_env,
+            start_new_session=True
         )
     except FileNotFoundError:
         print("[!] afl-fuzz not found.")
@@ -736,6 +752,7 @@ def main() -> int:
         except KeyboardInterrupt:
             print("\n[*] Fuzzing interrupted by user. Shutting down instances...")
         finally:
+            # Kill the processes
             if primary_handle.poll() is None:
                 primary_handle.terminate()
             if secondary_handle and secondary_handle.poll() is None:
@@ -744,6 +761,14 @@ def main() -> int:
             primary_handle.wait()
             if secondary_handle:
                 secondary_handle.wait()
+            
+            # Wipe the temporary RAM disk folders
+            print("[*] Cleaning up temporary RAM disk directories...")
+            for instance in ["primary", "secondary"]:
+                tmp_path = f"/tmp/afl_tmp_{instance}"
+                if os.path.exists(tmp_path):
+                    shutil.rmtree(tmp_path, ignore_errors=True)
+
             print("[*] All fuzzing instances cleanly terminated.")
 
     except Exception as e:
