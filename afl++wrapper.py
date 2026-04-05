@@ -5,7 +5,7 @@ import os
 import subprocess
 import argparse
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Union, Tuple
 
 import ollama
 
@@ -469,7 +469,8 @@ def run_aflpp(
     mutator_so: Optional[str] = None,
     extra_afl_args: Optional[list] = None,
     target_args: Optional[list] = None,
-) -> subprocess.Popen:
+    dry_run: bool = False, 
+) -> Union[subprocess.Popen, Tuple[list, dict]]: # <-- Tells Python it can return two different things
     """
     Launches an afl-fuzz instance. 
     Can act as the primary node or a secondary sync node depending on instance_name.
@@ -482,7 +483,6 @@ def run_aflpp(
     instance_tmp_dir = f"/tmp/afl_tmp_{instance_name}"
     os.makedirs(instance_tmp_dir, exist_ok=True)
     run_env["AFL_TMPDIR"] = instance_tmp_dir
-    run_env["AFL_NO_UI"] = "1"
 
     # TODO: update based on new mutator design and configuration options. For example,
     # we may want to pass additional config via env vars (e.g. for mutator behavior, LLM options, etc.)
@@ -503,7 +503,11 @@ def run_aflpp(
         run_env["OLLAMA_URL"]   = OLLAMA_BASE_URL
         run_env["OLLAMA_MODEL"] = "afl-mutator"
 
-        # TODO: remove once we have LLM mutator 
+        # 4. Disable AFL++'s built-in UI 
+        # Else we want to see it when doing tmux debugging
+        if not dry_run:
+            run_env["AFL_NO_UI"] = "1"
+
         # temp var for dummy mutator
         run_env["DUMMY_MUTATOR_DELAY"] = "60"
         
@@ -564,9 +568,12 @@ def run_aflpp(
     print(f"  CMD: afl-fuzz {' '.join(aflpp_cmd[1:])}")
     print(f"{'─' * 60}\n")
 
+    # If we are using tmux, just return the blueprints and let tmux launch it
+    if dry_run:
+        return aflpp_cmd, run_env
+
+    # If normal mode, actually pull the trigger and launch it
     try:
-        # use subprocess.Popen to run afl-fuzz and have a handler 
-        # TODO: we may want to capture stdout/stderr for GUI
         return subprocess.Popen(
             aflpp_cmd,
             stdout=out_dest,
@@ -589,10 +596,18 @@ def parse_args() -> argparse.Namespace:
         epilog=
         """
         Examples:
-        python3 afl++wrapper.py ../nginx nginx \\
-            --protocol HTTP \\
-            --llm-mutator ./llm-mutator \\
-            --libdesock   ./libdesock.so
+            python3 ~/sd/VibeFuzzer/afl++wrapper.py \
+                ~/sd/nginx \
+                objs/nginx \
+                --libdesock ~/sd/libdesock/build/libdesock.so \
+                --no-build \
+                --protocol HTTP \
+                --no-llm-seeds \
+                --input ~/sd/nginx/corpus_llm \
+                --output ~/sd/nginx/findings_tmux \
+                --llm-mutator ~/sd/dummy-mutator \
+                --debug-ui \
+                --target-args -c ~/sd/nginx/fuzz.conf
         """,
     )
 
@@ -624,6 +639,8 @@ def parse_args() -> argparse.Namespace:
     fuzz_group.add_argument("--output",                 default="./fuzzing_output", help="Directory for fuzzing findings")
     fuzz_group.add_argument("--afl-args",               nargs='*', default=[],
                                                         help="Extra flags for afl-fuzz itself (e.g. -p fast)")
+    fuzz_group.add_argument("--debug-ui",               action="store_true",
+                                                        help="Launch both instances side-by-side in tmux (requires --llm-mutator)")
 
     # LLM Mutator Options
     llm_group = parser.add_argument_group("LLM Mutator Configuration")
@@ -703,73 +720,114 @@ def main() -> int:
                 num_seeds=args.num_seeds,
             )
 
-        
-        # 2. Standard Mutator Launch (CPU) ==========================================
-        print("\n=== STAGE: Launching Primary (CPU) ===")
-        primary_handle = run_aflpp(
-            binary=binary_path,
-            input_dir=args.input,
-            output_dir=args.output,
-            env=base_env,
-            instance_name="primary",
-            mutator_so=None, # Standard AFL++ mutator only
-            extra_afl_args=args.afl_args or None,
-            target_args=args.target_args or None,
-        )
-        print(f"[*] Primary PID: {primary_handle.pid}")
+        # Launch AFL++ Instances with optional tmux UI ==========================================
+        if args.debug_ui:
 
-        # 3. Secondary Mutator Launch (GPU) ==========================================
-        secondary_handle = None
-        if llm_mutator_so:
-            print("\n=== STAGE: Launching Secondary (GPU) ===")
-            print("[*] Waiting 5s for primary to initialise queue...")
-            time.sleep(5)
-            
-            # Run afl-fuzz with libdesock + custom mutator
-            secondary_handle = run_aflpp(
-                binary=binary_path,
+            # Debug UI mode: launch both primary and secondary in tmux side-by-side for easy monitoring.
+            if not llm_mutator_so:
+                print("[!] --debug-ui requires --llm-mutator to be set.")
+                sys.exit(1)
+
+            # Import tmux_ui here to avoid unnecessary dependency if not using debug UI mode
+            import tmux_ui
+
+            # Generate the command blueprints for both instances without actually launching them, so we can run them in tmux panes.
+            # The primary 
+            p_cmd, p_env = run_aflpp(
+                binary=binary_path, 
                 input_dir=args.input, 
                 output_dir=args.output,
-                env=base_env,
-                instance_name="secondary",
+                env=base_env, 
+                instance_name="primary",
+                extra_afl_args=args.afl_args or None, 
+                target_args=args.target_args or None,
+                dry_run=True,
+            )
+
+            # The secondary
+            s_cmd, s_env = run_aflpp(
+                binary=binary_path, 
+                input_dir=args.input, 
+                output_dir=args.output,
+                env=base_env, 
+                instance_name="secondary", 
                 mutator_so=llm_mutator_so,
+                extra_afl_args=args.afl_args or None, 
+                target_args=args.target_args or None,
+                dry_run=True,
+            )
+
+            # Launch both instances in tmux panes with the generated command blueprints and environments
+            tmux_ui.launch_in_tmux("vibefuzzer", p_cmd, p_env, s_cmd, s_env)
+            
+            print("[*] Fuzzers are alive in tmux. Wrapper exiting.")
+            return 0
+        
+        else:
+            # 2. Standard Mutator Launch (CPU) ==========================================
+            print("\n=== STAGE: Launching Primary (CPU) ===")
+            primary_handle = run_aflpp(
+                binary=binary_path,
+                input_dir=args.input,
+                output_dir=args.output,
+                env=base_env,
+                instance_name="primary",
+                mutator_so=None, 
                 extra_afl_args=args.afl_args or None,
                 target_args=args.target_args or None,
             )
-            print(f"[*] Secondary PID: {secondary_handle.pid}")
+            print(f"[*] Primary PID: {primary_handle.pid}")
 
-        # TODO: After fuzzing completes, we can analyze results, generate reports, etc.
-        # TODO: Process cleanup 
-        # TODO: Add While loop for user intervention 
-        # TODO: Implement GUI 
+            # 3. Secondary Mutator Launch (GPU) ==========================================
+            secondary_handle = None
+            if llm_mutator_so:
+                print("\n=== STAGE: Launching Secondary (GPU) ===")
+                print("[*] Waiting 5s for primary to initialise queue...")
+                time.sleep(5)
+                
+                # Run afl-fuzz with libdesock + custom mutator
+                secondary_handle = run_aflpp(
+                    binary=binary_path,
+                    input_dir=args.input, 
+                    output_dir=args.output,
+                    env=base_env,
+                    instance_name="secondary",
+                    mutator_so=llm_mutator_so,
+                    extra_afl_args=args.afl_args or None,
+                    target_args=args.target_args or None,
+                )
+                print(f"[*] Secondary PID: {secondary_handle.pid}")
 
-        # Wait and Cleanup ========================================== 
-        print("\n[*] Fuzzing instances running. Press Ctrl+C to stop.")
-        try:
-            primary_handle.wait()
-            if secondary_handle:
-                secondary_handle.wait()
-        except KeyboardInterrupt:
-            print("\n[*] Fuzzing interrupted by user. Shutting down instances...")
-        finally:
-            # Kill the processes
-            if primary_handle.poll() is None:
-                primary_handle.terminate()
-            if secondary_handle and secondary_handle.poll() is None:
-                secondary_handle.terminate()
-            
-            primary_handle.wait()
-            if secondary_handle:
-                secondary_handle.wait()
-            
-            # Wipe the temporary RAM disk folders
-            print("[*] Cleaning up temporary RAM disk directories...")
-            for instance in ["primary", "secondary"]:
-                tmp_path = f"/tmp/afl_tmp_{instance}"
-                if os.path.exists(tmp_path):
-                    shutil.rmtree(tmp_path, ignore_errors=True)
+            # TODO: After fuzzing completes, we can analyze results, generate reports, etc.
+            # TODO: Add While loop for user intervention 
+            # TODO: Implement GUI 
 
-            print("[*] All fuzzing instances cleanly terminated.")
+            # Wait and Cleanup ========================================== 
+            print("\n[*] Fuzzing instances running. Press Ctrl+C to stop.")
+            try:
+                primary_handle.wait()
+                if secondary_handle:
+                    secondary_handle.wait()
+            except KeyboardInterrupt:
+                print("\n[*] Fuzzing interrupted by user. Shutting down instances...")
+            finally:
+                # Kill the processes
+                if primary_handle.poll() is None:
+                    primary_handle.terminate()
+                if secondary_handle and secondary_handle.poll() is None:
+                    secondary_handle.terminate()
+                
+                if primary_handle: primary_handle.wait()
+                if secondary_handle: secondary_handle.wait()
+                
+                # Wipe the temporary RAM disk folders
+                print("[*] Cleaning up temporary RAM disk directories...")
+                for instance in ["primary", "secondary"]:
+                    tmp_path = f"/tmp/afl_tmp_{instance}"
+                    if os.path.exists(tmp_path):
+                        shutil.rmtree(tmp_path, ignore_errors=True)
+
+                print("[*] All fuzzing instances cleanly terminated.")
 
     except Exception as e:
         print(f"\n[!] Error: {e}")
