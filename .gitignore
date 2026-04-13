@@ -209,3 +209,8 @@ __marimo__/
 # Fuzzing outputs
 fuzzing_outputs/*
 .venv/
+
+# Other misc ignores
+*.gguf
+*.o
+*.d

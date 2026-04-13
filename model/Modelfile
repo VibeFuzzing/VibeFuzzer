@@ -1,0 +1,12 @@
+FROM ./model_q4km.gguf
+PARAMETER stop "<|endoftext|>"
+PARAMETER stop "<|endoftext"
+PARAMETER stop "### Input"
+PARAMETER stop "#### Input"
+PARAMETER stop "---\n"
+PARAMETER repeat_penalty 1.5
+PARAMETER num_predict 128
+PARAMETER temperature 1.2
+PARAMETER top_p 0.95
+TEMPLATE """### Input: {{ .Prompt }}
+### Output: """
