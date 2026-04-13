@@ -1,4 +1,4 @@
-CFLAGS = -fPIC -I$(AFL_PATH)/include -MMD
+CFLAGS = -fPIC -I$(AFL_PATH)/include -MMD -g
 LDFLAGS = -shared
 LDLIBS = -lcurl -lcjson
 TARGET = libllmmutator.so

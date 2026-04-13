@@ -21,7 +21,7 @@ llm_mutator_t *afl_custom_init(afl_state_t *afl, unsigned int seed) {
   llm_mutator_t *data = calloc(1, sizeof(llm_mutator_t));
 
   data->afl = afl;
-  data->base_url = getenv("OLLAMA_BASE_URL");
+  data->base_url = getenv("OLLAMA_URL");
   data->model = getenv("OLLAMA_MODEL");
   data->history = calloc(1, sizeof(OllamaChatHistory));
   init_chat_history(data->history);
