@@ -23,8 +23,14 @@ import argparse
 # Add parent directory to path to import afl++wrapper
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-# Import with workaround for ++ in filename
+# Ensure tests can import afl++wrapper even if the `ollama` package is not installed.
+# GitHub Actions does not provide this dependency by default.
 import importlib.util
+import types
+
+sys.modules.setdefault('ollama', types.SimpleNamespace(list=Mock(), generate=Mock()))
+
+# Import with workaround for ++ in filename
 spec = importlib.util.spec_from_file_location("aflpp", Path(__file__).parent.parent / "afl++wrapper.py")
 aflpp = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(aflpp)
