@@ -46,3 +46,17 @@ jobs:
     - name: Clean up test artifacts
       working-directory: ./tests
       run: make clean
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Install Python test dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pytest pytest-mock pytest-cov
+
+    - name: Run AFL++ wrapper tests
+      run: |
+        pytest tests/test_afl_wrapper.py -v --tb=short
