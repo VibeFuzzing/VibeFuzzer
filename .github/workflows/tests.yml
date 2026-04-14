@@ -1,0 +1,48 @@
+name: Run Tests
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libcurl4-openssl-dev libcjson-dev
+
+    - name: Build tests
+      working-directory: ./tests
+      run: |
+        set -e
+        make clean && make
+
+    - name: Run ollama_test
+      working-directory: ./tests
+      run: |
+        set -e
+        if [ ! -f ./ollama_test ]; then
+          echo "Error: ollama_test executable not found"
+          exit 1
+        fi
+        ./ollama_test
+
+    - name: Run mutator_test
+      working-directory: ./tests
+      run: |
+        set -e
+        if [ ! -f ./mutator_test ]; then
+          echo "Error: mutator_test executable not found"
+          exit 1
+        fi
+        ./mutator_test
+
+    - name: Clean up test artifacts
+      working-directory: ./tests
+      run: make clean

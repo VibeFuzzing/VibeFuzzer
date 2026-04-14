@@ -28,7 +28,7 @@ static size_t curl_writefn(void *data, size_t size, size_t nmemb, void *userp) {
     return tot;
 }
 
-char *http_request(const char *method, const char *url, const char *body) {
+static char *http_request(const char *method, const char *url, const char *body) {
     CURL *curl = curl_easy_init();
     if (!curl) {
         return NULL;
@@ -59,6 +59,12 @@ char *http_request(const char *method, const char *url, const char *body) {
         return NULL;
     }
     return resp.str;        /* caller must free() */
+}
+
+static char *(*http_request_fn)(const char *, const char *, const char *) = http_request;
+
+void set_http_request_fn(char *(*fn)(const char *, const char *, const char *)) {
+    http_request_fn = fn ? fn : http_request;
 }
 
 void init_generate_data(OllamaGenerateResponse *r) {
@@ -178,7 +184,7 @@ OllamaGenerateResponse *ollama_generate(const char *base_url, const char *model,
     strcpy(url, base_url);
     strcat(url, "/api/generate");
 
-    char *resp = http_request("POST", url, body);
+    char *resp = http_request_fn("POST", url, body);
     free(body);
     free(url);
 
@@ -371,7 +377,7 @@ OllamaChatMessage *ollama_chat(const char *base_url, const char *model, const ch
     strcpy(url, base_url);
     strcat(url, "/api/chat");
 
-    char *resp = http_request("POST", url, body);
+    char *resp = http_request_fn("POST", url, body);
     free(body);
     free(url);
 

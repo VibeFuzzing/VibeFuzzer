@@ -214,3 +214,4 @@ fuzzing_outputs/*
 *.gguf
 *.o
 *.d
+*model_q4km*

@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 typedef struct llm_mutator {
   afl_state_t *afl;
@@ -15,6 +16,13 @@ typedef struct llm_mutator {
 
 uint8_t HEX_TO_DIGIT[256];
 
+/**
+ * @brief  Custom initialization function for AFL that sets up the mutator data structure with the expected values from environment variables and initializes the HEX_TO_DIGIT mapping. This should be called at the start of the fuzzing session to prepare the mutator for use.
+ * 
+ * @param afl  A pointer to the AFL state structure, which contains information about the fuzzing queue and other state.
+ * @param seed  A seed value for randomization (not used in this implementation but can be used for future enhancements).
+ * @return llm_mutator_t*  A pointer to the initialized mutator data structure, or NULL on failure.
+ */
 llm_mutator_t *afl_custom_init(afl_state_t *afl, unsigned int seed) {
   srand(seed);
 
@@ -55,13 +63,21 @@ llm_mutator_t *afl_custom_init(afl_state_t *afl, unsigned int seed) {
   return data;
 }
 
-// growable string helper
+/** 
+ * @brief  growable string helper
+ * 
+ */
 typedef struct string {
   char *data;
   size_t len;
   size_t cap;
 } string_t;
 
+/**
+ * @brief  Create a new growable string with initial capacity. The string is initialized to be empty (length 0) but has a null terminator at the start of the data buffer. The caller is responsible for freeing the memory allocated for the string using free_string when it is no longer needed.
+ * 
+ * @return string_t  A new string_t structure representing the growable string.
+ */
 string_t new_string() {
   string_t result;
   result.data = calloc(1, 1);
@@ -71,8 +87,17 @@ string_t new_string() {
   return result;
 }
 
+/**
+ * @brief  Free the memory allocated for a growable string. This function should be called when the string is no longer needed to avoid memory leaks. It frees the data buffer and resets the length and capacity to 0.
+ * 
+ * @param self  The string to free.
+ */
 void free_string(string_t *self) { free(self->data); }
 
+/** 
+ * @brief  Ensure that the growable string has at least the specified minimum capacity. If the current capacity is less than the required minimum, the function will double the capacity until it meets or exceeds the minimum. The data buffer is reallocated as needed to accommodate the new capacity. This function is used internally by string_push and string_push_str to ensure there is enough space for new characters or strings being appended.
+ * 
+ */
 void string_resize(string_t *self, size_t new_min_cap) {
   bool needs_realloc = 0;
   while (new_min_cap > self->cap) {
@@ -85,12 +110,24 @@ void string_resize(string_t *self, size_t new_min_cap) {
   }
 }
 
+/**
+ * @brief  Append a single character to the growable string, resizing if necessary. This function ensures that there is enough capacity in the string to accommodate the new character, and then appends it to the end of the string, updating the length accordingly. The string remains null-terminated after the new character is added.
+ * 
+ * @param self  The string to append to.
+ * @param ch  The character to append.
+ */
 void string_push(string_t *self, char ch) {
   string_resize(self, self->len + 1);
   self->data[self->len] = ch;
   self->len += 1;
 }
 
+/**
+ * @brief  Append a null-terminated string to the growable string, resizing if necessary. This function calculates the length of the string to append, ensures that there is enough capacity in the growable string to accommodate the new characters, and then appends the new string to the end of the growable string, updating the length accordingly. The growable string remains null-terminated after the new string is added.
+ * 
+ * @param self  The string to append to.
+ * @param string  The null-terminated string to append.
+ */
 void string_push_str(string_t *self, const char *string) {
   size_t add_len = strlen(string);
   if (add_len == 0) {
@@ -104,6 +141,18 @@ void string_push_str(string_t *self, const char *string) {
 char NUM_TO_HEX[16] = {'0', '1', '2', '3', '4', '5', '6', '7',
                        '8', '9', 'a', 'b', 'c', 'd', 'e', 'f'};
 
+/**
+ * @brief  Custom fuzzing function for AFL that uses the Ollama API to generate mutated inputs based on the provided chat history and model. This function reads the input from a file, sends it to the Ollama API, processes the response, and produces a new mutated input for fuzzing. The function handles escaping of special characters in the input and output, and logs any errors encountered during processing.
+ * 
+ * @param data  A pointer to the mutator data structure initialized by afl_custom_init, which contains the AFL state, base URL, model, chat history, and log file.
+ * @param buf  A pointer to the input buffer (not used in this implementation, as input is read from a file).
+ * @param buf_size  The size of the input buffer (not used in this implementation).
+ * @param out_buf  A pointer to a pointer where the output buffer will be stored (the caller is responsible for freeing this buffer).
+ * @param add_buf  A pointer to an additional input buffer (not used in this implementation).
+ * @param add_buf_size  The size of the additional input buffer (not used in this implementation).
+ * @param max_size  The maximum size of the output buffer to produce.
+ * @return size_t  The size of the output buffer produced, or 0 on failure.
+ */
 size_t afl_custom_fuzz(llm_mutator_t *data, uint8_t *buf, size_t buf_size,
                        uint8_t **out_buf, uint8_t *add_buf, size_t add_buf_size,
                        size_t max_size) {
