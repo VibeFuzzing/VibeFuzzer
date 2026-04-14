@@ -162,6 +162,8 @@ void print_chat_history(const OllamaChatHistory *history);
  */
 OllamaChatMessage *ollama_chat(const char *base_url, const char *model, const char *role, const char *prompt, OllamaChatHistory *history);
 
+void set_http_request_fn(char *(*fn)(const char *, const char *, const char *));
+
 
 // -- helper functions for HTTP requests and response handling --
 
@@ -174,13 +176,6 @@ struct CurlResponse {
 };
 
 /**
- * @brief Initialize a CurlResponse structure
- * 
- * @param r CurlResponse to initialize
- */
-static void init_curl_response(struct CurlResponse *r);
-
-/**
  * @brief Write function for libcurl
  * 
  * @param data Data received from the server
@@ -189,14 +184,3 @@ static void init_curl_response(struct CurlResponse *r);
  * @param userp User pointer (points to CurlResponse structure)
  * @return size_t Number of bytes written
  */
-static size_t curl_writefn(void *data, size_t size, size_t nmemb, void *userp);
-
-/**
- * Make an HTTP request.
- *
- * @param method    "GET", "POST", "PUT", "DELETE", etc. (defaults to GET if NULL)
- * @param url       full URL
- * @param body      optional request body (NULL for none)
- * @return          malloc'd response body, or NULL on error
- */
-char *http_request(const char *method, const char *url, const char *body);

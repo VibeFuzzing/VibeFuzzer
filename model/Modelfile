@@ -1,4 +1,4 @@
-FROM ./model_q4km.gguf
+FROM ./tmp/model_q4km.gguf
 PARAMETER stop "<|endoftext|>"
 PARAMETER stop "<|endoftext"
 PARAMETER stop "### Input"

@@ -4,12 +4,12 @@ rm -rf tmp
 mkdir tmp
 pushd tmp
 
-for url in $(../fetch_model_urls.py)
+for url in $(python ../fetch_model_urls.py)
 do
     curl $url -LO
 done
 
-../reassemble_gguf.sh model_q4km.gguf
+python ../reassemble_gguf.py model_q4km.gguf
 
 popd
 
