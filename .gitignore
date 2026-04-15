@@ -216,6 +216,7 @@ fuzzing_outputs/*
 *.d
 *model_q4km*AFLplusplus/
 libdesock/
+AFLplusplus/
 findings_tmux/
 __pycache__/
 llm-mutator-log.txt
