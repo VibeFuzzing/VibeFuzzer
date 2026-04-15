@@ -6,87 +6,89 @@ import subprocess
 import argparse
 from pathlib import Path
 from typing import Optional, Union, Tuple
+import tmux_ui
 
 import ollama
 
-MODEL = 'llama3.1:8b'
+# ============================================================================
+# MONOREPO STRUCTURE CONSTANTS
+# ============================================================================
+
+# SCRIPT_DIR is the VibeFuzzer/ directory where this python file lives.
+SCRIPT_DIR   = Path(__file__).parent.resolve()
+
+# All external dependencies are built natively inside the repo by setup.sh
+AFL_PATH     = SCRIPT_DIR / "AFLplusplus"
+LIBDESOCK_SO = SCRIPT_DIR / "libdesock" / "build" / "libdesock.so"
+
+# The Custom LLM Mutator
+MUTATOR_SO   = SCRIPT_DIR / "mutator" / "libllmmutator.so" 
+
+# Ollama API Configurations
 OLLAMA_BASE_URL = 'http://localhost:11434'
+OLLAMA_MODEL    = 'afl-mutator'
+SEED_MODEL      = 'llama3.1:8b'
 
 # TODO: add more protocols as needed
 valid_protocols = ['FTP', 'HTTP', 'SMTP', 'RTSP', 'DNS', 'SIP']
 
 # ============================================================================
-# COMPILE MUTATOR
+# PREFLIGHT CHECKS
 # ============================================================================
-def build_c_mutator(source_dir: str) -> str:
+def preflight_checks() -> None:
     """
-    Runs `make` inside mutator directory.
-    Returns path to compiled .so.
+    Verifies that all monorepo dependencies exist before attempting to fuzz.
+    Raises SystemExit with helpful messages if anything critical is missing.
     """
-
-    source_path = Path(source_dir).resolve()
-    if not source_path.exists():
-        raise FileNotFoundError(f"Mutator directory not found: {source_path}")
-
-    print(f"[*] Building mutator using Makefile in {source_path}")
-
-    subprocess.run(["make"], cwd=source_path, check=True)
-
-    # Find produced .so
-    so_files = list(source_path.glob("*.so"))
-    if not so_files:
-        raise RuntimeError("No .so file produced by make.")
-
-    mutator_so = so_files[0].resolve()
-    print(f"[*] Mutator built: {mutator_so}")
-
-    return str(mutator_so)
+    errors = []
+ 
+    if not AFL_PATH.exists():
+        errors.append(f"  AFL++ not found at:      {AFL_PATH}")
+    if not LIBDESOCK_SO.exists():
+        errors.append(f"  libdesock not found at:  {LIBDESOCK_SO}")
+ 
+    if errors:
+        print("[!] Monorepo dependencies missing. Did you run setup.sh?")
+        for e in errors:
+            print(e)
+        sys.exit(1)
+ 
+    # Mutator is optional — warn but don't abort
+    if not MUTATOR_SO.exists():
+        print(f"[!] Warning: LLM mutator .so not found at {MUTATOR_SO}")
+        print(f"    Secondary instance will not launch.")
+        print(f"    Run setup.sh to build it.\n")
+ 
+    print("[*] Preflight checks passed.")
+    print(f"    AFL++:     {AFL_PATH}")
+    print(f"    libdesock: {LIBDESOCK_SO}")
+    print(f"    mutator:   {MUTATOR_SO if MUTATOR_SO.exists() else 'NOT FOUND (optional)'}")
+    print()
 
 # ============================================================================
 # ENVIRONMENT SETUP (AFL++)
 # ============================================================================
-def setup_aflpp_env(libdesock_path: str, mutator_path: Optional[str] = None) -> dict:
+def setup_aflpp_env() -> dict:
     """
     Does NOT mutate os.environ globally — env is passed directly to subprocess.Popen so the parent process stays clean.
     """
     print("[*] Configuring base AFL++ environment variables...")
-
-    # Verify afl-fuzz exists
-    afl_fuzz_path = shutil.which("afl-fuzz")
-    
-    if not afl_fuzz_path:
-        raise FileNotFoundError("afl-fuzz not found in PATH.")
-
-    afl_path = str(Path(afl_fuzz_path).resolve().parent)
-    print(f"[*] afl-fuzz found at: {afl_fuzz_path}")
-
+ 
+    # Set up environment variables
     env = os.environ.copy()
     env.update({
-        "CC":                                    "afl-clang-fast",
-        "CXX":                                   "afl-clang-fast++",
-        "AFL_PATH":                              afl_path,
-        "AFL_PRELOAD":                           str(libdesock_path),
+        "CC":                                    str(AFL_PATH / "afl-clang-fast"),
+        "CXX":                                   str(AFL_PATH / "afl-clang-fast++"),
+        "AFL_PATH":                              str(AFL_PATH),
+        "AFL_PRELOAD":                           str(LIBDESOCK_SO),
         "AFL_TMPDIR":                            "/tmp",
         "AFL_SKIP_CPUFREQ":                      "1",
         "AFL_I_DONT_CARE_ABOUT_MISSING_CRASHES": "1",
         "ASAN_OPTIONS":                          "abort_on_error=1:detect_leaks=0:symbolize=0",
     })
-
+ 
     return env
-
-def verify_libdesock(lib_path: str) -> str:
-    """
-    Verifies the provided libdesock.so exists.
-    """
-    
-    libdesock_resolved = Path(lib_path).resolve()
-
-    if not libdesock_resolved.exists():
-        raise FileNotFoundError(f"libdesock not found at: {libdesock_resolved}")
-    print(f"[*] libdesock verified at: {libdesock_resolved}")
-    
-    return str(libdesock_resolved)
-
+ 
 # ============================================================================
 # BUILD TARGET
 # ============================================================================
@@ -124,6 +126,7 @@ def build_target(
 
     # Assumes a standard build system with ./configure && make
     # TODO: Add support for CMake, Meson, or custom build systems if needed
+    # TODO: -- flag for passing custom build commands or scripts
     if Path("./configure").exists():
         cfg = "CC=afl-clang-fast CXX=afl-clang-fast++ ./configure"
         if configure_args:
@@ -460,7 +463,7 @@ def generate_llm_seeds(
 # ============================================================================
 # RUN AFL++ 
 # ============================================================================
-def run_aflpp(
+def build_aflpp_cmd(
     binary: str,
     input_dir: str,
     output_dir: str,
@@ -469,8 +472,8 @@ def run_aflpp(
     mutator_so: Optional[str] = None,
     extra_afl_args: Optional[list] = None,
     target_args: Optional[list] = None,
-    dry_run: bool = False, 
-) -> Union[subprocess.Popen, Tuple[list, dict]]: # <-- Tells Python it can return two different things
+    debug_ui: bool = False, 
+) -> Tuple[list, dict]:
     """
     Launches an afl-fuzz instance. 
     Can act as the primary node or a secondary sync node depending on instance_name.
@@ -481,19 +484,17 @@ def run_aflpp(
 
     # ISOLATED RAM DISK: Prevent instance collisions
     instance_tmp_dir = f"/tmp/afl_tmp_{instance_name}"
+    if os.path.exists(instance_tmp_dir):
+        shutil.rmtree(instance_tmp_dir, ignore_errors=True)
     os.makedirs(instance_tmp_dir, exist_ok=True)
     run_env["AFL_TMPDIR"] = instance_tmp_dir
 
-    # TODO: update based on new mutator design and configuration options. For example,
-    # we may want to pass additional config via env vars (e.g. for mutator behavior, LLM options, etc.)
-    # Only load custom mutator if one is provided
+    # If we have a custom mutator .so, set up the environment for it.
     if mutator_so:
         mutator_resolved = Path(mutator_so).resolve()
-        if not mutator_resolved.exists():
-            raise FileNotFoundError(f"Mutator .so not found at: {mutator_resolved}")
 
         # 1. Load the custom library
-        run_env["AFL_CUSTOM_MUTATOR_LIBRARY"] = mutator_so
+        run_env["AFL_CUSTOM_MUTATOR_LIBRARY"] = str(mutator_resolved)
         
         # 2. Force this node to ONLY use the custom LLM mutator, and skip trimming
         run_env["AFL_CUSTOM_MUTATOR_ONLY"]    = "1"
@@ -505,41 +506,20 @@ def run_aflpp(
 
         # 4. Disable AFL++'s built-in UI 
         # Else we want to see it when doing tmux debugging
-        if not dry_run:
+        if not debug_ui:
             run_env["AFL_NO_UI"] = "1"
-
-        # temp var for dummy mutator
-        run_env["DUMMY_MUTATOR_DELAY"] = "60"
         
-        print(f"[*] Injecting custom LLM mutator environment for {instance_name}: {mutator_so}")
+        print(f"[*] Injecting mutator env for {instance_name}: {mutator_resolved.name}")
 
     # Build AFL++ command
-    aflpp_cmd = ["afl-fuzz"]
+    aflpp_cmd = [str(AFL_PATH / "afl-fuzz")]
 
     # build primary vs secondary command based on instance_name
-    if instance_name == "primary":
-        # Primary node: starts with the seed corpus and does the main fuzzing work.
-        aflpp_cmd += [
-            "-M", "primary",
-            "-i", input_dir
-        ]
-        # primary owns the terminal UI
-        out_dest = None  
-
-    else:
-        # Secondary node: syncs with primary and focuses on mutating inputs from the queue.
-        aflpp_cmd += [
-            "-S", instance_name,
-            "-i", input_dir
-        ]
-        Path(output_dir).mkdir(parents=True, exist_ok=True)
-        out_dest = open(f"{output_dir}/{instance_name}.log", "w")  # capture, don't discard
-
-    aflpp_cmd += [
-        "-o", output_dir,
-        "-m", "none",    # no memory cap — ASAN handles OOM
-        "-t", "5000+",   # 5s timeout; '+' = lenient on slow starts
-    ]
+    is_primary = (instance_name == "primary")
+    aflpp_cmd  = [str(AFL_PATH / "afl-fuzz")]
+    aflpp_cmd += ["-M" if is_primary else "-S", instance_name]
+    aflpp_cmd += ["-i", input_dir]
+    aflpp_cmd += ["-o", output_dir, "-m", "none", "-t", "5000+"]
 
     # Add AFL++ args BEFORE the -- separator
     if extra_afl_args:
@@ -553,7 +533,6 @@ def run_aflpp(
     if target_args:
         aflpp_cmd += target_args
 
-    # Run AFL++
     # Pretty print the AFL++ command
     print(f"\n{'─' * 60}")
     print(f"  AFL++ {instance_name.upper()} INSTANCE")
@@ -561,54 +540,39 @@ def run_aflpp(
     print(f"  {'Binary':<18} {binary}")
     print(f"  {'Input':<18} {input_dir}")
     print(f"  {'Output':<18} {output_dir}")
-    print(f"  {'Mutator':<18} {mutator_so if mutator_so else 'AFL++ built-in (havoc/splice)'}")
-    if target_args:
-        print(f"  {'Target Args':<18} {' '.join(target_args)}")
+    print(f"  {'Mutator':<18} {Path(mutator_so).name if mutator_so else 'AFL++ built-in (havoc/splice)'}")
+    print(f"  {'Mode':<18} {'tmux (debug)' if debug_ui else 'terminal' if instance_name == 'primary' else 'silent → log'}")
     print(f"{'─' * 60}")
-    print(f"  CMD: afl-fuzz {' '.join(aflpp_cmd[1:])}")
+    print(f"  CMD: {' '.join(aflpp_cmd)}")
     print(f"{'─' * 60}\n")
 
-    # If we are using tmux, just return the blueprints and let tmux launch it
-    if dry_run:
-        return aflpp_cmd, run_env
-
-    # If normal mode, actually pull the trigger and launch it
-    try:
-        return subprocess.Popen(
-            aflpp_cmd,
-            stdout=out_dest,
-            stderr=out_dest,
-            text=True,
-            env=run_env,
-            start_new_session=True
-        )
-    except FileNotFoundError:
-        print("[!] afl-fuzz not found.")
-        sys.exit(1)
+    # Note: We don't actually launch the process here — we just return the command and environment.
+    return aflpp_cmd, run_env
 
 # ============================================================================
 # ARGUMENT PARSING
 # ============================================================================
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="AFL++ + libdesock + C based LLM mutator fuzzing wrapper",
+        description="WibeFuzzer ---------- an AFL++ + libdesock + C based LLM mutator fuzzing wrapper",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=
-        """
+        epilog="""
         Examples:
-            python3 ~/sd/VibeFuzzer/afl++wrapper.py \
-                ~/sd/nginx \
-                objs/nginx \
-                --libdesock ~/sd/libdesock/build/libdesock.so \
-                --no-build \
-                --protocol HTTP \
-                --no-llm-seeds \
-                --input ~/sd/nginx/corpus_llm \
-                --output ~/sd/nginx/findings_tmux \
-                --llm-mutator ~/sd/dummy-mutator \
-                --debug-ui \
-                --target-args -c ~/sd/nginx/fuzz.conf
-        """,
+            # Standard run (mutator built by setup.sh)
+            python3 wrapper.py ~/targets/nginx objs/nginx \\
+                --no-build --protocol HTTP --no-llm-seeds \\
+                --input ~/targets/nginx/corpus \\
+                --output ~/targets/nginx/findings \\
+                --target-args -c ~/targets/nginx/fuzz.conf
+        
+            # Debug UI — both instances side-by-side in tmux
+            python3 wrapper.py ~/targets/nginx objs/nginx \\
+                --no-build --protocol HTTP --no-llm-seeds \\
+                --input ~/targets/nginx/corpus \\
+                --output ~/targets/nginx/findings \\
+                --debug-ui \\
+                --target-args -c ~/targets/nginx/fuzz.conf
+                """,
     )
 
     # Positional / Target
@@ -618,25 +582,23 @@ def parse_args() -> argparse.Namespace:
     target_group.add_argument("--protocol",             default=None, choices=valid_protocols,
                                                         help="Protocol the target speaks (improves LLM seed quality)")
 
-    # Core Dependencies
-    deps_group = parser.add_argument_group("Core Dependencies")
-    deps_group.add_argument("--libdesock",              required=True, help="Path to libdesock.so")
-    deps_group.add_argument("--afl-include",            default="/usr/local/include/afl",
-                                                        help="AFL++ headers dir for gcc compile")
-
     # Build Options
     build_group = parser.add_argument_group("Build Options")
     build_group.add_argument("--no-build",              action="store_true",
-                                                        help="Skip target build — binary must already be instrumented")
+                                                        help="Skip build — binary must already be instrumented")
+    build_group.add_argument("--configure-dir",         default=None,
+                                                        help="Directory containing ./configure if not in target_dir")
     build_group.add_argument("--configure-args",        default=None, help="Extra args for ./configure")
     build_group.add_argument("--make-args",             default=None, help="Extra args for make")
     build_group.add_argument("--target-args",           nargs=argparse.REMAINDER, default=[],
                                                         help="Args passed to the target binary after --")
 
     # AFL++ Fuzzing Options
-    fuzz_group = parser.add_argument_group("AFL++ Configuration")
-    fuzz_group.add_argument("--input",                  default="./fuzzing_inputs", help="Directory for seeds")
-    fuzz_group.add_argument("--output",                 default="./fuzzing_output", help="Directory for fuzzing findings")
+    fuzz_group = parser.add_argument_group("Fuzzing Configuration")
+    fuzz_group.add_argument("--input",                  default="./fuzzing_inputs",
+                                                        help="Seed corpus directory (default: ./fuzzing_inputs)")
+    fuzz_group.add_argument("--output",                 default="./fuzzing_output", 
+                                                        help="Findings output directory (default: ./fuzzing_output)")
     fuzz_group.add_argument("--afl-args",               nargs='*', default=[],
                                                         help="Extra flags for afl-fuzz itself (e.g. -p fast)")
     fuzz_group.add_argument("--debug-ui",               action="store_true",
@@ -644,8 +606,6 @@ def parse_args() -> argparse.Namespace:
 
     # LLM Mutator Options
     llm_group = parser.add_argument_group("LLM Mutator Configuration")
-    llm_group.add_argument("--llm-mutator",             default=None, 
-                                                        help="Path to LLM mutator directory (optional, triggers secondary GPU node)")
     llm_group.add_argument("--no-llm-seeds",            action="store_true",
                                                         help="Skip LLM seed generation — use existing seeds or fallback")
     llm_group.add_argument("--num-seeds",               type=int, default=10,
@@ -663,6 +623,7 @@ def main() -> int:
     # setup arguments and configuration
     args = parse_args()
 
+    print("[*] VibeFuzzer")
     print("[*] Configuration:")
     for k, v in vars(args).items():
         print(f"    {k}: {v}")
@@ -670,7 +631,11 @@ def main() -> int:
 
     # Main fuzzing workflow
     try:
-        # 0. Preparation & Compilation ==========================================
+        # 0. Preflight — verify repo structure built by setup.sh ===============
+        print("\n=== STAGE: Preflight Checks ===")
+        preflight_checks()
+
+        # 1. Preparation & Compilation ==========================================
         print("\n=== STAGE: Preparation & Compilation ===")
         
         # Build instrumented target
@@ -686,29 +651,24 @@ def main() -> int:
             binary_path = str(build_target(
                 source_dir=args.target_dir,
                 binary_name=args.binary,
+                configure_dir=args.configure_dir,
                 configure_args=args.configure_args,
                 make_args=args.make_args,
             ))
 
-        # Verify libdesock exists and is a .so file
-        libdesock_so = verify_libdesock(args.libdesock)
-        
-        # Build LLM mutator.so if specified
-        llm_mutator_so = None
-        if args.llm_mutator:
-            llm_mutator_so = build_c_mutator(source_dir=args.llm_mutator)
+        # LLM mutator .so is built by setup.sh — just resolve the path
+        llm_mutator_so = str(MUTATOR_SO) if MUTATOR_SO.exists() else None
+ 
+        # Build base environment from monorepo constants
+        base_env = setup_aflpp_env()
 
-        # Build environment
-        base_env = setup_aflpp_env(libdesock_path=libdesock_so)
-
-        # 1. Pre Fuzzing Seed Generation ==========================================
+        # 2. Pre Fuzzing Seed Generation ==========================================
         # Generate initial seeds via LLM (or skip with --no-llm-seeds)
         if args.no_llm_seeds:
             print("[*] Skipping LLM seed generation (--no-llm-seeds)")
             Path(args.input).mkdir(parents=True, exist_ok=True)
-            # Ensure at least one seed exists so AFL++ can start
-            fallback = Path(args.input) / "seed_fallback"
             if not list(Path(args.input).iterdir()):
+                fallback = Path(args.input) / "seed_fallback"
                 fallback.write_text("HELP\r\n")
                 print("[*] Wrote minimal fallback seed")
         else:
@@ -720,82 +680,51 @@ def main() -> int:
                 num_seeds=args.num_seeds,
             )
 
-        # Launch AFL++ Instances with optional tmux UI ==========================================
-        if args.debug_ui:
+        # 3. Build AFL++ Commands ===================================================
+        # Build primary command
+        p_cmd, p_env = build_aflpp_cmd(
+            binary=binary_path, input_dir=args.input, output_dir=args.output,
+            env=base_env, instance_name="primary",
+            extra_afl_args=args.afl_args or None, target_args=args.target_args or None,
+            debug_ui=args.debug_ui,
+        )
 
-            # Debug UI mode: launch both primary and secondary in tmux side-by-side for easy monitoring.
+        # Build secondary command (if mutator exists)
+        s_cmd, s_env = None, None
+        if llm_mutator_so:
+            s_cmd, s_env = build_aflpp_cmd(
+                binary=binary_path, input_dir=args.input, output_dir=args.output,
+                env=base_env, instance_name="secondary", mutator_so=llm_mutator_so,
+                extra_afl_args=args.afl_args or None, target_args=args.target_args or None,
+                debug_ui=args.debug_ui,
+            )
+
+        # 4. Execute AFL++ ==========================================================
+        if args.debug_ui:
             if not llm_mutator_so:
                 print("[!] --debug-ui requires --llm-mutator to be set.")
                 sys.exit(1)
 
-            # Import tmux_ui here to avoid unnecessary dependency if not using debug UI mode
-            import tmux_ui
-
-            # Generate the command blueprints for both instances without actually launching them, so we can run them in tmux panes.
-            # The primary 
-            p_cmd, p_env = run_aflpp(
-                binary=binary_path, 
-                input_dir=args.input, 
-                output_dir=args.output,
-                env=base_env, 
-                instance_name="primary",
-                extra_afl_args=args.afl_args or None, 
-                target_args=args.target_args or None,
-                dry_run=True,
-            )
-
-            # The secondary
-            s_cmd, s_env = run_aflpp(
-                binary=binary_path, 
-                input_dir=args.input, 
-                output_dir=args.output,
-                env=base_env, 
-                instance_name="secondary", 
-                mutator_so=llm_mutator_so,
-                extra_afl_args=args.afl_args or None, 
-                target_args=args.target_args or None,
-                dry_run=True,
-            )
-
-            # Launch both instances in tmux panes with the generated command blueprints and environments
             tmux_ui.launch_in_tmux("vibefuzzer", p_cmd, p_env, s_cmd, s_env)
-            
             print("[*] Fuzzers are alive in tmux. Wrapper exiting.")
             return 0
         
         else:
-            # 2. Standard Mutator Launch (CPU) ==========================================
             print("\n=== STAGE: Launching Primary (CPU) ===")
-            primary_handle = run_aflpp(
-                binary=binary_path,
-                input_dir=args.input,
-                output_dir=args.output,
-                env=base_env,
-                instance_name="primary",
-                mutator_so=None, 
-                extra_afl_args=args.afl_args or None,
-                target_args=args.target_args or None,
-            )
+            # Execute the primary instance 
+            primary_handle = subprocess.Popen(p_cmd, env=p_env, text=True, start_new_session=True)
             print(f"[*] Primary PID: {primary_handle.pid}")
 
-            # 3. Secondary Mutator Launch (GPU) ==========================================
             secondary_handle = None
-            if llm_mutator_so:
+            if s_cmd:
                 print("\n=== STAGE: Launching Secondary (GPU) ===")
                 print("[*] Waiting 5s for primary to initialise queue...")
                 time.sleep(5)
                 
-                # Run afl-fuzz with libdesock + custom mutator
-                secondary_handle = run_aflpp(
-                    binary=binary_path,
-                    input_dir=args.input, 
-                    output_dir=args.output,
-                    env=base_env,
-                    instance_name="secondary",
-                    mutator_so=llm_mutator_so,
-                    extra_afl_args=args.afl_args or None,
-                    target_args=args.target_args or None,
-                )
+                out_dest = open(f"{args.output}/secondary.log", "w")
+                # Execute the secondary instance
+                # redirect secondary output to a log file
+                secondary_handle = subprocess.Popen( s_cmd, env=s_env, stdout=out_dest, stderr=out_dest, text=True, start_new_session=True)
                 print(f"[*] Secondary PID: {secondary_handle.pid}")
 
             # TODO: After fuzzing completes, we can analyze results, generate reports, etc.

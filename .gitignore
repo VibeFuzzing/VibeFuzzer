@@ -214,4 +214,8 @@ fuzzing_outputs/*
 *.gguf
 *.o
 *.d
-*model_q4km*
+*model_q4km*AFLplusplus/
+libdesock/
+findings_tmux/
+__pycache__/
+llm-mutator-log.txt
