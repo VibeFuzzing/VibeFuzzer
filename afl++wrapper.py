@@ -1,3 +1,7 @@
+# afl++wrapper.py
+# ============================================================================
+# IMPORTS 
+# ============================================================================
 import time
 import shutil
 import sys
@@ -43,6 +47,7 @@ def preflight_checks() -> None:
     """
     errors = []
  
+    # Check for AFL++, libdesock, the mutator, and Ollama model availability.
     if not AFL_PATH.exists():
         errors.append(f"  AFL++ not found at:      {AFL_PATH}")
     if not LIBDESOCK_SO.exists():
@@ -50,6 +55,7 @@ def preflight_checks() -> None:
     if not MUTATOR_SO.exists():
         errors.append(f"  LLM mutator not found at: {MUTATOR_SO}")
 
+    # Check if Ollama is installed and the model is available by running 'ollama list'
     try:
         ollama_check = subprocess.run(["ollama", "list"], capture_output=True, text=True, check=True)
         if "afl-mutator" not in ollama_check.stdout:
@@ -59,12 +65,14 @@ def preflight_checks() -> None:
     except subprocess.CalledProcessError:
         errors.append("  Ollama daemon is not responding.")
  
+    # If any critical dependencies are missing, print all errors and exit.
     if errors:
         print("[!] Monorepo dependencies missing. Did you run setup.sh?")
         for e in errors:
             print(e)
         sys.exit(1)
- 
+    
+    # All checks passed
     print("[*] Preflight checks passed.")
     print(f"    AFL++:     {AFL_PATH}")
     print(f"    libdesock: {LIBDESOCK_SO}")
@@ -111,10 +119,12 @@ def build_target(
     Auto-detects CMake, Meson, Autotools, or standard Make.
     """
 
+    # First check if the binary already exists and is instrumented — if so, we can skip the build entirely.
     source_path = Path(source_dir).resolve()
     if not source_path.exists():
         raise FileNotFoundError(f"Target source not found: {source_path}")
 
+    # Common locations to check for the built binary
     search_paths = [
         source_path / binary_name,
         source_path / "src" / binary_name,
@@ -279,7 +289,7 @@ def build_aflpp_cmd(
     print(f"  CMD: {' '.join(aflpp_cmd)}")
     print(f"{'─' * 60}\n")
 
-    # Note: We don't actually launch the process here — we just return the command and environment.
+    # we just return the command and environment.
     return aflpp_cmd, run_env
 
 # ============================================================================
@@ -413,7 +423,7 @@ def main() -> int:
         # Build secondary command
         s_cmd, s_env = build_aflpp_cmd(
             binary=binary_path, input_dir=args.input, output_dir=args.output,
-            env=base_env, instance_name="secondary", mutator_so=str(MUTATOR_SO), # <-- Cast to str() here
+            env=base_env, instance_name="secondary", mutator_so=str(MUTATOR_SO), 
             extra_afl_args=args.afl_args or None, target_args=args.target_args or None,
             debug_ui=args.debug_ui,
         )
