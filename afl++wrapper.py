@@ -314,7 +314,7 @@ def parse_args() -> argparse.Namespace:
     fuzz_group.add_argument("--afl-args",               nargs='*', default=[],
                                                         help="Extra flags for afl-fuzz itself (e.g. -p fast)")
     fuzz_group.add_argument("--debug-ui",               action="store_true",
-                                                        help="Launch both instances side-by-side in tmux (requires --llm-mutator)")
+                                                        help="Launch both instances side-by-side in tmux"))
 
     # LLM Mutator Options
     llm_group = parser.add_argument_group("LLM Mutator Configuration")
@@ -418,7 +418,6 @@ def main() -> int:
             primary_handle = subprocess.Popen(p_cmd, env=p_env, text=True, start_new_session=True)
             print(f"[*] Primary PID: {primary_handle.pid}")
 
-            secondary_handle = None
             print("\n=== STAGE: Launching Secondary (GPU) ===")
             print("[*] Waiting 5s for primary to initialise queue...")
             time.sleep(5)
@@ -437,8 +436,7 @@ def main() -> int:
             print("\n[*] Fuzzing instances running. Press Ctrl+C to stop.")
             try:
                 primary_handle.wait()
-                if secondary_handle:
-                    secondary_handle.wait()
+                secondary_handle.wait()
             except KeyboardInterrupt:
                 print("\n[*] Fuzzing interrupted by user. Shutting down instances...")
             finally:
