@@ -4,10 +4,13 @@ import sys
 import os
 import subprocess
 import argparse
-from pathlib import Path
-from typing import Optional, Union, Tuple
+import traceback
+
 import tmux_ui
 import seed_gen
+
+from pathlib import Path
+from typing import Optional, Union, Tuple
 
 # ============================================================================
 # MONOREPO STRUCTURE CONSTANTS
@@ -101,53 +104,71 @@ def build_target(
     binary_name: str,
     configure_args: Optional[str] = None,
     make_args: Optional[str] = None,
+    custom_build_cmd: Optional[str] = None,
 ) -> Path:
     """
-    Instruments and builds the fuzz target with afl-clang-fast. Returns the path to the instrumented binary.
+    Instruments and builds the fuzz target with afl-clang-fast. 
+    Auto-detects CMake, Meson, Autotools, or standard Make.
     """
 
-    # Check source directory exists
     source_path = Path(source_dir).resolve()
     if not source_path.exists():
         raise FileNotFoundError(f"Target source not found: {source_path}")
 
-    # Common binary locations to check after build (some projects put binaries in src/ or bin/)
     search_paths = [
         source_path / binary_name,
         source_path / "src" / binary_name,
         source_path / "bin" / binary_name,
+        source_path / "build" / binary_name,
     ]
 
-    # Reuse if already instrumented
+    # Return early if already instrumented
     for path in search_paths:
         if path.is_file() and verify_instrumentation(path, fatal=False):
             print(f"[*] Existing instrumented binary found: {path}")
             return path.resolve()
 
-    # Otherwise, build from source
     print(f"[*] Building target in: {source_path}")
     os.chdir(source_path)
 
-    # Assumes a standard build system with ./configure && make
-    # TODO: Add support for CMake, Meson, or custom build systems if needed
-    # TODO: -- flag for passing custom build commands or scripts
-    if Path("./configure").exists():
-        cfg = "CC=afl-clang-fast CXX=afl-clang-fast++ ./configure"
-        if configure_args:
-            cfg += f" {configure_args}"
-        subprocess.run(cfg, shell=True, check=True)
+    # Format the arguments once to save space
+    cfg_args = f" {configure_args}" if configure_args else ""
+    bld_args = f" {make_args}" if make_args else ""
+    stale_clean = "make clean" if any(p.is_file() for p in search_paths) else None
+    
+    # Standardize our compiler injection
+    compilers = "CC=afl-clang-fast CXX=afl-clang-fast++"
+    cmds = []
 
-    # Clean before build to ensure no stale binaries. 
-    # TODO: could be optimized to only clean if we detect an existing binary that isn't instrumented.
-    subprocess.run("make clean", shell=True, check=True)
-    subprocess.run("make" + (f" {make_args}" if make_args else ""), shell=True, check=True)
+    # Map the detected build system to its setup and build commands
+    if custom_build_cmd:
+        print("[*] Using custom build command.")
+        cmds = [f"{compilers} {custom_build_cmd}"]
+    elif Path("CMakeLists.txt").exists():
+        print("[*] Detected CMake build system.")
+        cmds = [f"{compilers} cmake -B build{cfg_args}", f"cmake --build build{bld_args}"]
+    elif Path("meson.build").exists():
+        print("[*] Detected Meson build system.")
+        cmds = [f"{compilers} meson setup build{cfg_args}", f"ninja -C build{bld_args}"]
+    elif Path("./configure").exists():
+        print("[*] Detected Autotools ./configure script.")
+        cmds = [f"{compilers} ./configure{cfg_args}", stale_clean, f"make{bld_args}"]
+    else:
+        print("[*] Falling back to standard Make.")
+        cmds = [stale_clean, f"make{bld_args}"]
 
+    # Execute the queued commands
+    for cmd in cmds:
+        if cmd:  # Ignores 'None' values like stale_clean when unneeded
+            subprocess.run(cmd, shell=True, check=True)
+
+    # Verify build success
     for path in search_paths:
         if path.is_file() and verify_instrumentation(path, fatal=True):
             print(f"[*] Binary ready: {path.resolve()}")
             return path.resolve()
 
-    raise FileNotFoundError(f"Binary '{binary_name}' not found after build.")
+    raise FileNotFoundError(f"Binary '{binary_name}' not found or failed instrumentation after build.")
 
 def verify_instrumentation(binary_path: Path, fatal: bool = True) -> bool:
     """
@@ -201,7 +222,7 @@ def build_aflpp_cmd(
     os.makedirs(instance_tmp_dir, exist_ok=True)
     run_env["AFL_TMPDIR"] = instance_tmp_dir
 
-    # If we have a custom mutator .so, set up the environment for it.
+    # For the secondary instance, we inject the custom mutator and related configurations via environment variables.
     if mutator_so:
         mutator_resolved = Path(mutator_so).resolve()
 
@@ -272,14 +293,14 @@ def parse_args() -> argparse.Namespace:
         Examples:
             # Standard run (mutator built by setup.sh)
             python3 wrapper.py ~/targets/nginx objs/nginx \\
-                --no-build --protocol HTTP --no-llm-seeds \\
+                --protocol HTTP --no-llm-seeds \\
                 --input ~/targets/nginx/corpus \\
                 --output ~/targets/nginx/findings \\
                 --target-args -c ~/targets/nginx/fuzz.conf
         
             # Debug UI — both instances side-by-side in tmux
             python3 wrapper.py ~/targets/nginx objs/nginx \\
-                --no-build --protocol HTTP --no-llm-seeds \\
+                --protocol HTTP --no-llm-seeds \\
                 --input ~/targets/nginx/corpus \\
                 --output ~/targets/nginx/findings \\
                 --debug-ui \\
@@ -292,16 +313,16 @@ def parse_args() -> argparse.Namespace:
     target_group.add_argument("target_dir",             help="Target server source directory")
     target_group.add_argument("binary",                 help="Binary name to fuzz")
     target_group.add_argument("--protocol",             default=None, choices=valid_protocols,
-                                                        help="Protocol the target speaks (improves LLM seed quality)")
+                                                        help="Protocol the target speaks")
 
     # Build Options
     build_group = parser.add_argument_group("Build Options")
-    build_group.add_argument("--no-build",              action="store_true",
-                                                        help="Skip build — binary must already be instrumented")
-    build_group.add_argument("--configure-dir",         default=None,
-                                                        help="Directory containing ./configure if not in target_dir")
-    build_group.add_argument("--configure-args",        default=None, help="Extra args for ./configure")
-    build_group.add_argument("--make-args",             default=None, help="Extra args for make")
+    build_group.add_argument("--custom-build",          default=None, 
+                                                        help="Custom build command string (overrides auto-detect)")
+    build_group.add_argument("--configure-args",        default=None, 
+                                                        help="Args for the setup phase (./configure, cmake -B, meson setup)")
+    build_group.add_argument("--make-args",             default=None, 
+                                                        help="Args for the compile phase (make, cmake --build, ninja)")
     build_group.add_argument("--target-args",           nargs=argparse.REMAINDER, default=[],
                                                         help="Args passed to the target binary after --")
 
@@ -314,7 +335,7 @@ def parse_args() -> argparse.Namespace:
     fuzz_group.add_argument("--afl-args",               nargs='*', default=[],
                                                         help="Extra flags for afl-fuzz itself (e.g. -p fast)")
     fuzz_group.add_argument("--debug-ui",               action="store_true",
-                                                        help="Launch both instances side-by-side in tmux"))
+                                                        help="Launch both instances side-by-side in tmux")
 
     # LLM Mutator Options
     llm_group = parser.add_argument_group("LLM Mutator Configuration")
@@ -350,23 +371,14 @@ def main() -> int:
         # 1. Preparation & Compilation ==========================================
         print("\n=== STAGE: Preparation & Compilation ===")
         
-        # Build instrumented target
-        # If skipping build, we assume the user has already built the target binary with AFL++ instrumentation.
-        # We just need to verify it exists and is instrumented.
-        if args.no_build:
-            binary_path = Path(args.target_dir) / args.binary
-            if not binary_path.exists():
-                raise FileNotFoundError(f"Binary not found: {binary_path}")
-            verify_instrumentation(binary_path, fatal=True)
-            binary_path = str(binary_path)
-        else:
-            binary_path = str(build_target(
-                source_dir=args.target_dir,
-                binary_name=args.binary,
-                configure_dir=args.configure_dir,
-                configure_args=args.configure_args,
-                make_args=args.make_args,
-            ))
+        # Build instrumented target (automatically skips if already built)
+        binary_path = str(build_target(
+            source_dir=args.target_dir,
+            binary_name=args.binary,
+            configure_args=args.configure_args,
+            make_args=args.make_args,
+            custom_build_cmd=args.custom_build,
+        ))
  
         # Build base environment from monorepo constants
         base_env = setup_aflpp_env()
@@ -401,12 +413,15 @@ def main() -> int:
         # Build secondary command
         s_cmd, s_env = build_aflpp_cmd(
             binary=binary_path, input_dir=args.input, output_dir=args.output,
-            env=base_env, instance_name="secondary", mutator_so=MUTATOR_SO,
+            env=base_env, instance_name="secondary", mutator_so=str(MUTATOR_SO), # <-- Cast to str() here
             extra_afl_args=args.afl_args or None, target_args=args.target_args or None,
             debug_ui=args.debug_ui,
         )
 
         # 4. Execute AFL++ ==========================================================
+        primary_handle = None
+        secondary_handle = None
+
         if args.debug_ui:
             tmux_ui.launch_in_tmux("vibefuzzer", p_cmd, p_env, s_cmd, s_env)
             print("[*] Fuzzers are alive in tmux. Wrapper exiting.")
@@ -460,7 +475,6 @@ def main() -> int:
 
     except Exception as e:
         print(f"\n[!] Error: {e}")
-        import traceback
         traceback.print_exc()
         return 1
     
