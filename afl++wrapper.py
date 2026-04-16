@@ -297,7 +297,7 @@ def build_aflpp_cmd(
 # ============================================================================
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="WibeFuzzer ---------- an AFL++ + libdesock + C based LLM mutator fuzzing wrapper",
+        description="VibeFuzzer ---------- an AFL++ + libdesock + C based LLM mutator fuzzing wrapper",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
         Examples:
