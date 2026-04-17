@@ -9,7 +9,7 @@ do
     curl $url -LO
 done
 
-python ../reassemble_gguf.py model_q4km.gguf
+../reassemble_gguf.sh model_q4km.gguf
 
 popd
 
