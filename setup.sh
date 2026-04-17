@@ -1,0 +1,47 @@
+sudo apt-get update
+sudo apt install -y git curl python3.12-venv meson libcjson-dev libcurl4-openssl-dev tmux
+
+sudo apt-get install -y build-essential python3-dev automake cmake git flex bison libglib2.0-dev libpixman-1-dev python3-setuptools cargo libgtk-3-dev
+# sudo apt-get install -y lld-14 llvm-14 llvm-14-dev clang-14 || sudo apt-get install -y lld llvm llvm-dev clang
+sudo apt-get install -y lld llvm llvm-dev clang
+sudo apt-get install -y gcc-$(gcc --version|head -n1|sed 's/\..*//'|sed 's/.* //')-plugin-dev libstdc++-$(gcc --version|head -n1|sed 's/\..*//'|sed 's/.* //')-dev
+sudo apt-get install -y ninja-build # for QEMU mode
+
+curl -fsSL https://ollama.com/install.sh | sh
+
+pushd ~/.vibe-fuzzer
+python3 -m venv .venv
+source .venv/bin/activate
+
+pushd bin
+cat > vibe-fuzz << "EOF"
+
+source ~/.vibe-fuzzer/.venv/bin/activate
+~/.vibe-fuzzer/VibeFuzzer/afl++wrapper.py $@
+
+EOF
+popd
+
+echo "export PATH=$PATH:$HOME/.vibe-fuzzer/bin"
+
+git clone https://www.github.com/VibeFuzzing/VibeFuzzer
+cd VibeFuzzer
+
+git clone https://github.com/AFLplusplus/AFLplusplus
+pushd AFLplusplus
+make distrib
+sudo make install
+popd
+
+git clone https://github.com/fkie-cad/libdesock
+pushd libdesock
+meson setup ./build && cd ./build && meson compile
+popd
+
+pushd model
+./fetch_and_merge.sh
+ollama create afl-mutator -f Modelfile
+popd
+cd mutator
+AFL_PATH=../../AFLplusplus make
+popd
