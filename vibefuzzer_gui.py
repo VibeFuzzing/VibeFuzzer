@@ -8,11 +8,13 @@ import os
 from pathlib import Path
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import letter
 
 ctk.set_appearance_mode("dark")
 
-VALID_PROTOCOLS = ["", "FTP", "HTTP", "SMTP", "RTSP", "DNS", "SIP"]
-
+# VALID_PROTOCOLS = ["", "FTP", "HTTP", "SMTP", "RTSP", "DNS", "SIP"]
+VALID_PROTOCOLS = ["HTTP"]
 
 class VibeFuzzerGUI(ctk.CTk):
     def __init__(self):
@@ -148,6 +150,8 @@ class VibeFuzzerGUI(ctk.CTk):
         os.makedirs(input_dir, exist_ok=True)
         os.makedirs(output_dir, exist_ok=True)
 
+        self.final_output_dir = output_dir  # Store for final screen
+
         # ❌ Block execution if empty       
         directory = Path(input_dir)
         if self.no_llm.get() and self.is_dir_empty(directory):
@@ -186,9 +190,113 @@ class VibeFuzzerGUI(ctk.CTk):
         # ✅ ALWAYS enable debug UI
         cmd += ["--debug-ui"]
 
-        subprocess.Popen(["tmux", "new-session", "-s", "vibefuzzer", " ".join(cmd)])
+        print(f"Running command: {' '.join(cmd)}")
+        subprocess.Popen(cmd)
+        # subprocess.Popen(["tmux", "new-session", "-s", "vibefuzzer", " ".join(cmd)])
 
-        self.build_monitor_screen()
+        # Hide the GUI window and start monitoring the tmux session
+        self.withdraw()
+        threading.Thread(target=self.monitor_tmux_session, daemon=True).start()
+
+    def monitor_tmux_session(self):
+        """Monitor the tmux session and show the final coverage screen when it ends."""
+        while True:
+            result = subprocess.run(["tmux", "has-session", "-t", "vibefuzzer"], 
+                                  capture_output=True, text=True)
+            if result.returncode != 0:
+                # Session no longer exists, show the final coverage screen
+                self.after(0, self.build_final_coverage_screen)
+                break
+            time.sleep(1)  # Check every second
+
+    def build_final_coverage_screen(self):
+        """Build a screen showing final coverage data."""
+        self.clear()
+
+        frame = ctk.CTkFrame(self)
+        frame.pack(padx=20, pady=20, fill="both", expand=True)
+
+        ctk.CTkLabel(frame, text="Final Coverage Report", font=("Arial", 24)).pack(pady=10)
+
+        # Read stats from output directory
+        stats_text = self.get_final_stats()
+        
+        stats_box = ctk.CTkTextbox(frame, wrap="word")
+        stats_box.pack(fill="both", expand=True, padx=10, pady=10)
+        stats_box.insert("end", stats_text)
+        stats_box.configure(state="disabled")
+
+        # Button to return to config
+        button_frame = ctk.CTkFrame(frame)
+        button_frame.pack(pady=10)
+        ctk.CTkButton(button_frame, text="Download PDF", command=self.download_pdf).pack(side="left", padx=5)
+        ctk.CTkButton(button_frame, text="Back to Config", command=self.build_config_screen).pack(side="left", padx=5)
+
+    def get_final_stats(self):
+        """Parse and return final stats from AFL++ output."""
+        sync_dir = Path(self.final_output_dir) / "sync"
+        if not sync_dir.exists():
+            return "No sync directory found. Fuzzing may not have completed."
+
+        stats = []
+        for fuzzer_dir in sync_dir.iterdir():
+            if fuzzer_dir.is_dir() and fuzzer_dir.name.startswith("fuzzer"):
+                stats_file = fuzzer_dir / "fuzzer_stats"
+                if stats_file.exists():
+                    stats.append(f"=== {fuzzer_dir.name.upper()} STATS ===")
+                    try:
+                        with open(stats_file, 'r') as f:
+                            content = f.read()
+                            # Extract key lines
+                            lines = content.split('\n')
+                            for line in lines:
+                                if any(key in line for key in ['paths_total', 'unique_crashes', 'unique_hangs', 'execs_done', 'cycles_done']):
+                                    stats.append(line.strip())
+                    except Exception as e:
+                        stats.append(f"Error reading stats: {e}")
+                    stats.append("")
+
+        if not stats:
+            return "No stats files found."
+
+        return '\n'.join(stats)
+
+    def download_pdf(self):
+        """Generate and save a PDF of the final stats."""
+        stats_text = self.get_final_stats()
+        if not stats_text or stats_text.startswith("No"):
+            messagebox.showerror("Error", "No stats available to export.")
+            return
+
+        file_path = filedialog.asksaveasfilename(
+            defaultextension=".pdf",
+            filetypes=[("PDF files", "*.pdf")],
+            title="Save Fuzzing Results PDF"
+        )
+        if not file_path:
+            return
+
+        try:
+            c = canvas.Canvas(file_path, pagesize=letter)
+            width, height = letter
+            y = height - 50  # Start near top
+
+            c.setFont("Helvetica-Bold", 16)
+            c.drawString(50, y, "VibeFuzzer Final Coverage Report")
+            y -= 30
+
+            c.setFont("Helvetica", 12)
+            for line in stats_text.split('\n'):
+                if y < 50:  # New page if near bottom
+                    c.showPage()
+                    y = height - 50
+                c.drawString(50, y, line)
+                y -= 15
+
+            c.save()
+            messagebox.showinfo("Success", f"PDF saved to {file_path}")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to save PDF: {e}")
 
     # =========================================================
     # MONITOR SCREEN
