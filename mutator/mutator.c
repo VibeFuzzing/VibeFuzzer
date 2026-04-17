@@ -12,6 +12,7 @@ typedef struct llm_mutator {
   const char *model;
   OllamaChatHistory *history;
   FILE *log_file;
+  int i;
 } llm_mutator_t;
 
 uint8_t HEX_TO_DIGIT[256];
@@ -34,6 +35,7 @@ llm_mutator_t *afl_custom_init(afl_state_t *afl, unsigned int seed) {
   data->history = calloc(1, sizeof(OllamaChatHistory));
   init_chat_history(data->history);
   data->log_file = fopen("llm-mutator-log.txt", "wb");
+  data->i = 0;
 
   HEX_TO_DIGIT['0'] = 0;
   HEX_TO_DIGIT['1'] = 1;
@@ -156,6 +158,13 @@ char NUM_TO_HEX[16] = {'0', '1', '2', '3', '4', '5', '6', '7',
 size_t afl_custom_fuzz(llm_mutator_t *data, uint8_t *buf, size_t buf_size,
                        uint8_t **out_buf, uint8_t *add_buf, size_t add_buf_size,
                        size_t max_size) {
+  data->i = (data->i + 1) % 200;
+  if (data->i != 0) {
+    // No-op
+    *out_buf = buf;
+    return buf_size;
+  }
+
   string_t input_buf = new_string();
   char temp[256] = {0}; // Temporary storage buffer (oversized intentionally)
 
