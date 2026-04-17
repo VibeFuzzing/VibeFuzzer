@@ -5,12 +5,18 @@
 
 # Handles all pre-fuzzing seed generation via Ollama.
 # Called once per fuzzing session before AFL++ is launched.
-
+#
+# Uses the fine-tuned afl-mutator model for both initial seed generation
+# and mutation. For initial seeds, we feed the model a protocol example
+# formatted as an ancestry chain — the model produces creative mutations
+# of that example, giving AFL++ diverse starting seeds.
+#
 # The wrapper calls generate_llm_seeds() and treats this file as a black box.
 # To add a new protocol, add an entry to PROTOCOL_HINTS — nothing else changes.
 
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List
+import re
 
 import ollama
 
@@ -21,72 +27,48 @@ SEED_MODEL      = 'afl-mutator'
 # PROTOCOL HINTS
 # ============================================================================
 
-# Protocol-specific context that helps the LLM generate better seeds.
-# Each entry provides an example session and structural notes for the prompt.
-# Add new protocols here as needed — the LLM will use these as context.
+# Protocol-specific seed templates that get fed to the fine-tuned model
+# as ancestry chain inputs. The model mutates these to produce diverse seeds.
+# Add new protocols here as needed.
 PROTOCOL_HINTS = {
     'FTP': {
-        'description': 'File Transfer Protocol — command/response text protocol over TCP',
-        'example_session': (
-            'USER anonymous\r\n'
-            'PASS guest@\r\n'
-            'SYST\r\n'
-            'PWD\r\n'
-            'LIST\r\n'
-            'QUIT\r\n'
-        ),
-        'notes': 'Commands are uppercase 3-4 chars followed by optional args. Lines end with \\r\\n.',
+        'seeds': [
+            'USER anonymous\\r\\nPASS guest@\\r\\nSYST\\r\\nQUIT\\r\\n',
+            'USER admin\\r\\nPASS admin\\r\\nPWD\\r\\nLIST\\r\\nQUIT\\r\\n',
+            'EHLO localhost\\r\\nHELP\\r\\nSTAT\\r\\nQUIT\\r\\n',
+        ],
     },
     'HTTP': {
-        'description': 'Hypertext Transfer Protocol — request/response text protocol over TCP',
-        'example_session': (
-            'GET / HTTP/1.1\r\n'
-            'Host: localhost\r\n'
-            'User-Agent: fuzzer/1.0\r\n'
-            'Accept: */*\r\n'
-            '\r\n'
-        ),
-        'notes': 'Request line + headers + blank line + optional body. Methods: GET, POST, PUT, DELETE, HEAD, OPTIONS, PATCH. All lines MUST end with \\r\\n, including the blank line separating headers from body.',
+        'seeds': [
+            'GET / HTTP/1.1\\r\\nHost: localhost\\r\\n\\r\\n',
+            'POST /index.html HTTP/1.1\\r\\nHost: localhost\\r\\nContent-Length: 5\\r\\n\\r\\nhello',
+            'HEAD / HTTP/1.0\\r\\n\\r\\n',
+            'OPTIONS * HTTP/1.1\\r\\nHost: localhost\\r\\n\\r\\n',
+        ],
     },
     'SMTP': {
-        'description': 'Simple Mail Transfer Protocol — email delivery over TCP',
-        'example_session': (
-            'EHLO localhost\r\n'
-            'MAIL FROM:<test@test.com>\r\n'
-            'RCPT TO:<user@localhost>\r\n'
-            'DATA\r\n'
-            'Subject: test\r\n\r\nHello\r\n.\r\n'
-            'QUIT\r\n'
-        ),
-        'notes': 'Command-based. EHLO/HELO starts session. DATA terminates with lone dot on a line.',
+        'seeds': [
+            'EHLO localhost\\r\\nMAIL FROM:<test@test.com>\\r\\nRCPT TO:<user@localhost>\\r\\nDATA\\r\\nSubject: test\\r\\n\\r\\nHello\\r\\n.\\r\\nQUIT\\r\\n',
+            'HELO localhost\\r\\nVRFY root\\r\\nQUIT\\r\\n',
+        ],
     },
     'RTSP': {
-        'description': 'Real Time Streaming Protocol — media control protocol similar to HTTP',
-        'example_session': (
-            'OPTIONS rtsp://localhost/stream RTSP/1.0\r\n'
-            'CSeq: 1\r\n'
-            '\r\n'
-        ),
-        'notes': 'HTTP-like syntax with RTSP methods: OPTIONS, DESCRIBE, SETUP, PLAY, PAUSE, TEARDOWN.',
+        'seeds': [
+            'OPTIONS rtsp://localhost/stream RTSP/1.0\\r\\nCSeq: 1\\r\\n\\r\\n',
+            'DESCRIBE rtsp://localhost/stream RTSP/1.0\\r\\nCSeq: 2\\r\\nAccept: application/sdp\\r\\n\\r\\n',
+        ],
     },
     'DNS': {
-        'description': 'Domain Name System — binary query/response protocol over UDP/TCP',
-        'example_session': None,  # DNS is binary, not text-based
-        'notes': 'Binary protocol. 12-byte header + question section + answer sections. Seeds should be raw bytes.',
+        'seeds': [
+            # DNS is binary — provide a minimal query as hex escapes
+            '\\x00\\x01\\x01\\x00\\x00\\x01\\x00\\x00\\x00\\x00\\x00\\x00\\x07example\\x03com\\x00\\x00\\x01\\x00\\x01',
+        ],
     },
     'SIP': {
-        'description': 'Session Initiation Protocol — signaling protocol for VoIP',
-        'example_session': (
-            'INVITE sip:user@localhost SIP/2.0\r\n'
-            'Via: SIP/2.0/UDP 127.0.0.1:5060\r\n'
-            'From: <sip:caller@localhost>;tag=1234\r\n'
-            'To: <sip:user@localhost>\r\n'
-            'Call-ID: abcd@localhost\r\n'
-            'CSeq: 1 INVITE\r\n'
-            'Content-Length: 0\r\n'
-            '\r\n'
-        ),
-        'notes': 'HTTP-like syntax. Methods: INVITE, ACK, BYE, CANCEL, REGISTER, OPTIONS.',
+        'seeds': [
+            'INVITE sip:user@localhost SIP/2.0\\r\\nVia: SIP/2.0/UDP 127.0.0.1:5060\\r\\nFrom: <sip:caller@localhost>;tag=1234\\r\\nTo: <sip:user@localhost>\\r\\nCall-ID: abcd@localhost\\r\\nCSeq: 1 INVITE\\r\\nContent-Length: 0\\r\\n\\r\\n',
+            'REGISTER sip:localhost SIP/2.0\\r\\nVia: SIP/2.0/UDP 127.0.0.1:5060\\r\\nTo: <sip:user@localhost>\\r\\nFrom: <sip:user@localhost>;tag=5678\\r\\nCall-ID: reg@localhost\\r\\nCSeq: 1 REGISTER\\r\\n\\r\\n',
+        ],
     },
 }
 
@@ -108,107 +90,104 @@ def _verify_ollama_connection() -> None:
             raise RuntimeError(
                 f"Model '{SEED_MODEL}' not found in Ollama.\n"
                 f"Available: {available}\n"
-                f"Pull it with: ollama pull {SEED_MODEL}"
+                f"Create it with: ollama create {SEED_MODEL} -f Modelfile"
             )
         print(f"[*] Ollama connected. Model '{SEED_MODEL}' available.")
-    except Exception as e:
+    except ConnectionError:
         raise RuntimeError(
             f"Cannot connect to Ollama at {OLLAMA_BASE_URL}. "
             "Is it running? Start with: ollama serve"
         )
 
 
-def _build_seed_prompt(protocol: Optional[str], binary_name: str, seed_index: int, total_seeds: int) -> str:
+def _build_mutator_prompt(seed_texts: List[str]) -> str:
     """
-    Builds a prompt for the LLM to generate a single fuzz seed.
-    If protocol is provided (and known), includes protocol-specific context.
-    Otherwise, asks the LLM to infer from the binary name.
+    Builds a prompt in the format the fine-tuned model was trained on.
+    Takes a list of seed texts and formats them as an ancestry chain
+    with metadata tags, separated by --- delimiters.
     """
-    prompt_parts = [
-        "You are a network protocol fuzzing expert. Your job is to generate test inputs "
-        "that will be used as initial seeds for AFL++ fuzzing of a network server.\n\n"
-        "You are generating CLIENT REQUESTS that will be sent TO the server. "
-        "Do NOT generate server responses (e.g. do NOT output lines like 'HTTP/1.1 200 OK' "
-        "or '220 Welcome' or any response status lines). The server will never receive its "
-        "own responses as input — only client requests.\n\n"
-        "CRITICAL OUTPUT RULES:\n"
-        "- Output ONLY the raw seed content. No explanation, no markdown, no code blocks.\n"
-        "- Do not wrap output in quotes or backticks.\n"
-        "- The output will be written directly to a file and fed to the target binary.\n"
-        "- Generate ONLY a single client request per seed.\n\n"
-    ]
-
-    if protocol and protocol.upper() in PROTOCOL_HINTS:
-        hints = PROTOCOL_HINTS[protocol.upper()]
-        prompt_parts.append(f"Target protocol: {hints['description']}\n")
-        if hints['example_session']:
-            prompt_parts.append(f"Example valid session:\n{hints['example_session']}\n")
-        prompt_parts.append(f"Protocol notes: {hints['notes']}\n\n")
-    else:
-        # No protocol specified — let the LLM infer from binary name
-        prompt_parts.append(
-            f"The target binary is '{binary_name}'. Based on this name, infer what protocol "
-            f"or input format this server likely expects and generate an appropriate test input.\n\n"
+    input_parts = []
+    for i, seed_text in enumerate(seed_texts):
+        meta = (
+            f"[id:{i} "
+            f"depth:{i + 1} "
+            f"bitmap:{400 + i * 15} "
+            f"favored:True "
+            f"new_cov:True]"
         )
+        input_parts.append(f"{meta}\n{seed_text}")
 
-    # Seed variation instructions — each seed should be different
-    prompt_parts.append(
-        f"Generate seed {seed_index + 1} of {total_seeds}. Each seed should test something different.\n"
-        "Vary across these strategies:\n"
-        "- Valid, well-formed messages (baseline coverage)\n"
-        "- Messages with boundary-length fields (empty strings, very long values)\n"
-        "- Messages with unusual but syntactically valid options or parameters\n"
-        "- Slightly malformed messages (wrong line endings, missing required fields)\n"
-        "- Messages that exercise different commands/methods/verbs of the protocol\n"
-        "- Messages with special characters, null bytes, or encoding edge cases\n\n"
-        f"This is seed {seed_index + 1} — make it meaningfully different from the others.\n"
-    )
-
-    return "".join(prompt_parts)
+    return "\n---\n".join(input_parts)
 
 
-def __clean_llm_output(raw: str) -> str:
+def _clean_mutator_output(raw: str) -> str:
     """
-    Strips LLM commentary and artifacts from generated seed content.
-    The LLM sometimes adds explanatory notes, markdown formatting, or
-    other text that would corrupt the seed if written to disk.
-    Also converts literal escape sequences (e.g. the text \r\n) into
-    actual bytes, since the LLM often reproduces escape sequences as text.
+    Cleans output from the fine-tuned mutator model.
+    Strips trailing prompt artifacts and converts escape sequences
+    back to actual bytes.
     """
-    lines   = raw.split('\n')
-    cleaned = []
+    # Strip any trailing prompt artifacts the model generates
+    for stop in ['### Input', '#### Input', '<|endoftext|>', '<|endoftext', '---']:
+        idx = raw.find(stop)
+        if idx != -1:
+            raw = raw[:idx]
 
-    for line in lines:
-        stripped = line.strip()
+    result = raw.strip()
 
-        # Skip lines that are clearly LLM commentary, not protocol data
-
-        if stripped.startswith('(') and stripped.endswith(')'):
-            continue  # e.g. "(Note: I've left out the User-Agent value...)"
-        if stripped.startswith('```'):
-            continue  # markdown code fences
-        if stripped.startswith('Note:') or stripped.startswith('NOTE:'):
-            continue
-        if stripped.startswith('#') and not stripped.startswith('##'):
-            # Skip markdown headers but keep things like HTTP fragments
-            # that might start with # in edge cases
-            if any(word in stripped.lower() for word in ['explanation', 'note', 'comment', 'output']):
-                continue
-        cleaned.append(line)
-
-    result = '\n'.join(cleaned).strip()
-
-    # Convert literal escape sequences the LLM writes as text into actual bytes.
-    # The LLM sees \r\n in the prompt examples and often outputs the literal characters
-    # \ r \ n instead of actual carriage return + newline.
+    # Convert escape sequences to actual bytes
     result = result.replace('\\r\\n', '\r\n')
     result = result.replace('\\n',    '\n')
     result = result.replace('\\r',    '\r')
     result = result.replace('\\t',    '\t')
-    result = result.replace('\\x00',  '\x00')
-    result = result.replace('\\0',    '\x00')
+
+    # Convert \xNN hex escapes
+    result = re.sub(
+        r'\\x([0-9a-fA-F]{2})',
+        lambda m: chr(int(m.group(1), 16)),
+        result,
+    )
 
     return result
+
+
+def _get_protocol_seeds(protocol: Optional[str], binary_name: str) -> List[str]:
+    """
+    Returns seed templates for the given protocol.
+    If no protocol is specified, tries to infer from the binary name.
+    Falls back to a generic HTTP seed.
+    """
+    if protocol and protocol.upper() in PROTOCOL_HINTS:
+        return PROTOCOL_HINTS[protocol.upper()]['seeds']
+
+    # Try to infer protocol from binary name
+    name_lower = binary_name.lower()
+    for proto, hints in PROTOCOL_HINTS.items():
+        # Match common server binary names to protocols
+        if proto.lower() in name_lower:
+            print(f"[*] Inferred protocol {proto} from binary name '{binary_name}'")
+            return hints['seeds']
+
+    # Common binary name patterns
+    http_names = ['nginx', 'apache', 'httpd', 'lighttpd', 'caddy', 'haproxy']
+    ftp_names  = ['proftpd', 'vsftpd', 'pureftpd', 'ftpd']
+    smtp_names = ['postfix', 'sendmail', 'exim', 'dovecot']
+
+    for name in http_names:
+        if name in name_lower:
+            print(f"[*] Inferred protocol HTTP from binary name '{binary_name}'")
+            return PROTOCOL_HINTS['HTTP']['seeds']
+    for name in ftp_names:
+        if name in name_lower:
+            print(f"[*] Inferred protocol FTP from binary name '{binary_name}'")
+            return PROTOCOL_HINTS['FTP']['seeds']
+    for name in smtp_names:
+        if name in name_lower:
+            print(f"[*] Inferred protocol SMTP from binary name '{binary_name}'")
+            return PROTOCOL_HINTS['SMTP']['seeds']
+
+    # Default fallback
+    print(f"[*] Could not infer protocol from '{binary_name}' — using generic HTTP seeds")
+    return PROTOCOL_HINTS['HTTP']['seeds']
 
 
 # ============================================================================
@@ -223,12 +202,20 @@ def generate_llm_seeds(
     keep_existing: bool = True,
 ) -> int:
     """
-    Generates initial seed inputs for AFL++ using Llama via Ollama.
-    Seeds are written to input_dir as individual files.
+    Generates initial seed inputs for AFL++ using the fine-tuned afl-mutator model.
+
+    Takes protocol-specific seed templates, feeds them to the model as
+    ancestry chains, and collects the mutated outputs as initial seeds.
+    This gives AFL++ a diverse starting corpus without requiring a
+    separate base model.
+
+    The first few seeds are the raw protocol templates themselves (valid
+    baseline seeds), and the rest are LLM-generated mutations of those
+    templates.
 
     Args:
         input_dir:      AFL++ seed corpus directory (created if needed)
-        binary_name:    Target binary name — used in prompt if protocol is unknown
+        binary_name:    Target binary name — used to infer protocol if not specified
         protocol:       Optional protocol hint (FTP, HTTP, SMTP, etc.)
         num_seeds:      How many seeds to generate
         keep_existing:  If True, skip generation if seeds already exist
@@ -249,60 +236,94 @@ def generate_llm_seeds(
 
     _verify_ollama_connection()
 
-    print(f"[*] Generating {num_seeds} seeds with {SEED_MODEL}...")
-    if protocol:
-        print(f"[*] Protocol hint: {protocol}")
-    else:
-        print(f"[*] No protocol specified — inferring from binary name '{binary_name}'")
+    # Get protocol-specific seed templates
+    template_seeds = _get_protocol_seeds(protocol, binary_name)
+    print(f"[*] Using {len(template_seeds)} protocol template(s) as base seeds")
 
     generated = 0
+    seed_num = start_index
 
-    for i in range(num_seeds):
-        seed_num  = start_index + i
-        seed_file = input_path / f"seed_llm_{seed_num:04d}"
+    # ── Write template seeds first (guaranteed valid baselines) ─────────
+    print(f"\n[*] Writing {len(template_seeds)} baseline template seeds...")
+    for template in template_seeds:
+        seed_file = input_path / f"seed_base_{seed_num:04d}"
 
         if keep_existing and seed_file.exists():
             print(f"    [skip] {seed_file.name} already exists")
+            seed_num += 1
             continue
 
-        prompt = _build_seed_prompt(
-            protocol=protocol,
-            binary_name=binary_name,
-            seed_index=i,
-            total_seeds=num_seeds,
-        )
+        # Convert escape sequences in template to actual bytes
+        content = _clean_mutator_output(template)
+        seed_file.write_bytes(content.encode('latin-1', errors='replace'))
+        generated += 1
 
-        print(f"[*] Generating seed {seed_num}... (waiting for LLM response)")
+        preview = content[:80].replace('\n', '\\n').replace('\r', '\\r')
+        print(f"    [ok] {seed_file.name} ({len(content)} bytes): {preview}...")
+        seed_num += 1
 
-        try:
-            response = ollama.generate(
-                model=SEED_MODEL,
-                prompt=prompt,
-                options={'temperature': 0.9, 'num_predict': 512, 'top_p': 0.95},
-            )
-            seed_content = __clean_llm_output(response.response.strip())
+    # ── Generate mutations via fine-tuned model ────────────────────────
+    mutation_count = max(0, num_seeds - len(template_seeds))
+    if mutation_count > 0:
+        print(f"\n[*] Generating {mutation_count} mutated seeds with {SEED_MODEL}...")
 
-            if not seed_content:
-                print(f"    [warn] Seed {seed_num} was empty, skipping")
+        for i in range(mutation_count):
+            seed_file = input_path / f"seed_mut_{seed_num:04d}"
+
+            if keep_existing and seed_file.exists():
+                print(f"    [skip] {seed_file.name} already exists")
+                seed_num += 1
                 continue
 
-            # latin-1 encoding preserves raw bytes including null bytes
-            seed_file.write_bytes(seed_content.encode('latin-1'))
-            generated += 1
+            # Build ancestry chain prompt from template seeds
+            prompt = _build_mutator_prompt(template_seeds)
 
-            preview = seed_content[:80].replace('\n', '\\n').replace('\r', '\\r')
-            print(f"    [ok] {seed_file.name} ({len(seed_content)} bytes): {preview}...")
+            try:
+                # Retry up to 3 times if output is too short
+                seed_content = None
+                for attempt in range(3):
+                    response = ollama.generate(
+                        model=SEED_MODEL,
+                        prompt=prompt,
+                        options={
+                            'temperature': 1.0 + (attempt * 0.15),
+                            'num_predict': 512,
+                            'stop': [
+                                '<|endoftext|>',
+                                '<|endoftext',
+                                '### Input',
+                                '#### Input',
+                            ],
+                        },
+                    )
+                    candidate = _clean_mutator_output(response.response)
 
-        except Exception as e:
-            print(f"    [err] Seed {seed_num} failed: {e}")
-            continue
+                    if candidate and len(candidate) >= 10:
+                        seed_content = candidate
+                        break
 
-    # Fallback: ensure AFL++ always has at least one seed to start from
+                if not seed_content:
+                    print(f"    [warn] Mutation {seed_num} too short after retries, skipping")
+                    seed_num += 1
+                    continue
+
+                seed_file.write_bytes(seed_content.encode('latin-1', errors='replace'))
+                generated += 1
+
+                preview = seed_content[:80].replace('\n', '\\n').replace('\r', '\\r')
+                print(f"    [ok] {seed_file.name} ({len(seed_content)} bytes): {preview}...")
+
+            except Exception as e:
+                print(f"    [err] Mutation {seed_num} failed: {e}")
+
+            seed_num += 1
+
+    # Fallback: ensure AFL++ always has at least one seed
     if not list(input_path.glob("seed_*")):
         fallback = input_path / "seed_fallback"
         fallback.write_text("HELP\r\n")
         print(f"    [fallback] No seeds generated — wrote minimal fallback seed")
         generated = 1
 
-    print(f"[*] Seed generation complete: {generated}/{num_seeds} seeds → {input_path}")
+    print(f"\n[*] Seed generation complete: {generated} seeds → {input_path}")
     return generated
