@@ -28,7 +28,7 @@ source ~/.vibe-fuzzer/.venv/bin/activate
 EOF
 cd ..
 
-echo "export PATH=$PATH:$HOME/.vibe-fuzzer/bin"
+echo "export PATH=$PATH:$HOME/.vibe-fuzzer/bin" >> ~/.bashrc
 
 git clone https://www.github.com/VibeFuzzing/VibeFuzzer
 cd VibeFuzzer
