@@ -1,3 +1,5 @@
+currentdir=`pwd`
+
 sudo apt-get update
 sudo apt install -y git curl python3.12-venv meson libcjson-dev libcurl4-openssl-dev tmux
 
@@ -10,20 +12,21 @@ sudo apt-get install -y ninja-build # for QEMU mode
 curl -fsSL https://ollama.com/install.sh | sh
 
 mkdir ~/.vibe-fuzzer
-pushd ~/.vibe-fuzzer
+cd ~/.vibe-fuzzer
+
 mkdir .venv
 python3 -m venv .venv
 source .venv/bin/activate
 
 mkdir bin
-pushd bin
+cd bin
 cat > vibe-fuzz << "EOF"
 
 source ~/.vibe-fuzzer/.venv/bin/activate
 ~/.vibe-fuzzer/VibeFuzzer/afl++wrapper.py $@
 
 EOF
-popd
+cd ..
 
 echo "export PATH=$PATH:$HOME/.vibe-fuzzer/bin"
 
@@ -31,20 +34,20 @@ git clone https://www.github.com/VibeFuzzing/VibeFuzzer
 cd VibeFuzzer
 
 git clone https://github.com/AFLplusplus/AFLplusplus
-pushd AFLplusplus
+cd AFLplusplus
 make distrib
 sudo make install
-popd
+cd ..
 
 git clone https://github.com/fkie-cad/libdesock
-pushd libdesock
+cd libdesock
 meson setup ./build && cd ./build && meson compile
-popd
 
-pushd model
+cd ../../model
 ./fetch_and_merge.sh
 ollama create afl-mutator -f Modelfile
-popd
-cd mutator
-AFL_PATH=../../AFLplusplus make
-popd
+
+cd ../mutator
+AFL_PATH=../AFLplusplus make
+
+cd $currentdir
