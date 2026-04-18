@@ -26,6 +26,7 @@ source ~/.vibe-fuzzer/.venv/bin/activate
 ~/.vibe-fuzzer/VibeFuzzer/afl++wrapper.py $@
 
 EOF
+chmod +x vibe-fuzz
 cd ..
 
 echo "export PATH=$PATH:$HOME/.vibe-fuzzer/bin" >> ~/.bashrc
