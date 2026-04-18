@@ -23,7 +23,7 @@ cd bin
 cat > vibe-fuzz << "EOF"
 
 source ~/.vibe-fuzzer/.venv/bin/activate
-~/.vibe-fuzzer/VibeFuzzer/afl++wrapper.py $@
+python3 ~/.vibe-fuzzer/VibeFuzzer/afl++wrapper.py $@
 
 EOF
 chmod +x vibe-fuzz
