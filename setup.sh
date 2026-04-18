@@ -17,6 +17,7 @@ cd ~/.vibe-fuzzer
 mkdir .venv
 python3 -m venv .venv
 source .venv/bin/activate
+pip3 install ollama
 
 mkdir bin
 cd bin
