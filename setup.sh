@@ -9,10 +9,13 @@ sudo apt-get install -y ninja-build # for QEMU mode
 
 curl -fsSL https://ollama.com/install.sh | sh
 
+mkdir ~/.vibe-fuzzer
 pushd ~/.vibe-fuzzer
+mkdir .venv
 python3 -m venv .venv
 source .venv/bin/activate
 
+mkdir bin
 pushd bin
 cat > vibe-fuzz << "EOF"
 
