@@ -1,7 +1,7 @@
 currentdir=`pwd`
 
 sudo apt-get update
-sudo apt-get install -y git curl python3.12-venv meson libcjson-dev libcurl4-openssl-dev tmux
+sudo apt-get install -y git curl python3-venv meson libcjson-dev libcurl4-openssl-dev tmux
 
 sudo apt-get install -y build-essential python3-dev automake cmake git flex bison libglib2.0-dev libpixman-1-dev python3-setuptools cargo libgtk-3-dev
 # sudo apt-get install -y lld-14 llvm-14 llvm-14-dev clang-14 || sudo apt-get install -y lld llvm llvm-dev clang
@@ -11,6 +11,7 @@ sudo apt-get install -y ninja-build # for QEMU mode
 
 curl -fsSL https://ollama.com/install.sh | sh
 
+rm -rf ~/.vibe-fuzzer
 mkdir ~/.vibe-fuzzer
 cd ~/.vibe-fuzzer
 
