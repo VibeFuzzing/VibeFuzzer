@@ -109,11 +109,12 @@ def setup_aflpp_env() -> dict:
 # ============================================================================
 def build_target(
     source_dir: str,
-    binary_name: str,
+    binary_name: Optional[str] = None,
     configure_args: Optional[str] = None,
     make_args: Optional[str] = None,
     custom_build_cmd: Optional[str] = None,
 ) -> Path:
+    
     """
     Instruments and builds the fuzz target with afl-clang-fast. 
     Auto-detects CMake, Meson, Autotools, or standard Make.
@@ -127,14 +128,15 @@ def build_target(
     # Common locations to check for the built binary
     search_paths = [
         source_path / binary_name,
-        source_path / "src" / binary_name,
-        source_path / "bin" / binary_name,
+        source_path / "objs"  / binary_name,
+        source_path / "src"   / binary_name,
+        source_path / "bin"   / binary_name,
         source_path / "build" / binary_name,
-    ]
+    ] if binary_name else []
 
     # Return early if already instrumented
     for path in search_paths:
-        if path.is_file() and verify_instrumentation(path, fatal=False):
+        if path.is_file() and _verify_instrumentation(path, fatal=False):
             print(f"[*] Existing instrumented binary found: {path}")
             return path.resolve()
 
@@ -173,14 +175,16 @@ def build_target(
             subprocess.run(cmd, shell=True, check=True)
 
     # Verify build success
+    # After build: check known paths first
     for path in search_paths:
-        if path.is_file() and verify_instrumentation(path, fatal=True):
+        if path.is_file() and _verify_instrumentation(path, fatal=False):
             print(f"[*] Binary ready: {path.resolve()}")
             return path.resolve()
 
-    raise FileNotFoundError(f"Binary '{binary_name}' not found or failed instrumentation after build.")
+    # Fall back to auto-scan if --binary wasn't specified (or wasn't found)
+    return _auto_detect_binary(source_path)
 
-def verify_instrumentation(binary_path: Path, fatal: bool = True) -> bool:
+def _verify_instrumentation(binary_path: Path, fatal: bool = True) -> bool:
     """
     Checks for AFL++ __AFL_SHM_ID instrumentation marker via strings.
     """
@@ -202,9 +206,37 @@ def verify_instrumentation(binary_path: Path, fatal: bool = True) -> bool:
         )
     return False
 
+def _auto_detect_binary(source_path: Path) -> Path:
+    """
+    Scans source_path for instrumented ELF executables after a build.
+    Succeeds if exactly one is found, otherwise raises with helpful output.
+    """
+    candidates = [
+        p for p in source_path.rglob("*")
+        if p.is_file()
+        and os.access(p, os.X_OK)
+        and _verify_instrumentation(p, fatal=False)
+    ]
+
+    if len(candidates) == 1:
+        print(f"[*] Auto-detected binary: {candidates[0]}")
+        return candidates[0]
+
+    if len(candidates) == 0:
+        raise FileNotFoundError(
+            "No instrumented binaries found after build.\n"
+            "Try specifying it explicitly with --binary <relative/path>"
+        )
+
+    # Multiple candidates — list them and bail
+    listing = "\n".join(f"  {p.relative_to(source_path)}" for p in candidates)
+    raise RuntimeError(
+        f"Multiple instrumented binaries found — specify one with --binary:\n{listing}"
+    )
+
 
 # ============================================================================
-# RUN AFL++ 
+# AFL++ 
 # ============================================================================
 def build_aflpp_cmd(
     binary: str,
@@ -321,7 +353,8 @@ def parse_args() -> argparse.Namespace:
     # Positional / Target
     target_group = parser.add_argument_group("Target Configuration")
     target_group.add_argument("target_dir",             help="Target server source directory")
-    target_group.add_argument("binary",                 help="Binary name to fuzz")
+    target_group.add_argument("--binary",               default=None,
+                                                        help="Expected binary path relative to target dir (e.g. objs/nginx). Auto-detected if omitted.")
     target_group.add_argument("--protocol",             default=None, choices=valid_protocols,
                                                         help="Protocol the target speaks")
 
@@ -384,7 +417,7 @@ def main() -> int:
         # Build instrumented target (automatically skips if already built)
         binary_path = str(build_target(
             source_dir=args.target_dir,
-            binary_name=args.binary,
+            binary_name=args.binary,  
             configure_args=args.configure_args,
             make_args=args.make_args,
             custom_build_cmd=args.custom_build,
