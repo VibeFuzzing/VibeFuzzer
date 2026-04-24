@@ -1,4 +1,4 @@
-# afl++wrapper.py
+# vibefuzzer.py
 # ============================================================================
 # IMPORTS 
 # ============================================================================
@@ -35,7 +35,8 @@ OLLAMA_BASE_URL = 'http://localhost:11434'
 OLLAMA_MODEL    = 'afl-mutator'
 
 # TODO: add more protocols as needed
-valid_protocols = ['FTP', 'HTTP', 'SMTP', 'RTSP', 'DNS', 'SIP']
+# valid_protocols = ['FTP', 'HTTP', 'SMTP', 'RTSP', 'DNS', 'SIP']
+valid_protocols = ['HTTP']
 
 # ============================================================================
 # PREFLIGHT CHECKS

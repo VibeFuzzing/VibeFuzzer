@@ -221,3 +221,5 @@ AFLplusplus/
 findings_tmux/
 __pycache__/
 llm-mutator-log.txt
+input/
+output/
