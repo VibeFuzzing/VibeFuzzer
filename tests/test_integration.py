@@ -35,7 +35,7 @@ import importlib.util
 
 # Import modules
 spec_wrapper = importlib.util.spec_from_file_location(
-    "aflpp", Path(__file__).parent.parent / "afl++wrapper.py"
+    "aflpp", Path(__file__).parent.parent / "vibefuzzer.py"
 )
 aflpp = importlib.util.module_from_spec(spec_wrapper)
 spec_wrapper.loader.exec_module(aflpp)

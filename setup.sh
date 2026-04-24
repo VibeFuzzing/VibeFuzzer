@@ -25,7 +25,7 @@ cd bin
 cat > vibe-fuzz << "EOF"
 
 source ~/.vibe-fuzzer/.venv/bin/activate
-python3 ~/.vibe-fuzzer/VibeFuzzer/afl++wrapper.py $@ && tmux attach -t vibefuzzer
+python3 ~/.vibe-fuzzer/VibeFuzzer/vibefuzzer.py $@ && tmux attach -t vibefuzzer
 
 EOF
 chmod +x vibe-fuzz

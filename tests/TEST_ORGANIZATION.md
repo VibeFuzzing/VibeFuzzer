@@ -153,7 +153,7 @@ Each test type has clear section headers in the CI output for easy identificatio
 - ✅ Tmux session attachment
 - ✅ Configuration validation
 
-### afl++wrapper.py  
+### vibefuzzer.py  
 - ✅ Environment setup
 - ✅ Preflight checks
 - ✅ Binary building

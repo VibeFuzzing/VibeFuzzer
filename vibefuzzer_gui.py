@@ -314,7 +314,7 @@ class VibeFuzzerGUI(ctk.CTk):
         # We cannot assume target_dir will always be the binary's parent 
         target_dir = self.target_source_dir.get()
 
-        cmd = ["python3", "afl++wrapper.py", target_dir]
+        cmd = ["python3", "vibefuzzer.py", target_dir]
         if binary_path:
             cmd += ["--binary", binary_path]
 

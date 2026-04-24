@@ -1,5 +1,5 @@
 """
-Unit tests for afl++wrapper.py
+Unit tests for vibefuzzer.py
 
 Tests cover:
 - Environment setup and verification
@@ -33,7 +33,7 @@ sys.modules.setdefault('seed_gen', types.SimpleNamespace(generate_llm_seeds=Mock
 sys.modules.setdefault('tmux_ui', types.SimpleNamespace(launch_in_tmux=Mock()))
 
 # Import with workaround for ++ in filename
-spec = importlib.util.spec_from_file_location("aflpp", Path(__file__).parent.parent / "afl++wrapper.py")
+spec = importlib.util.spec_from_file_location("aflpp", Path(__file__).parent.parent / "vibefuzzer.py")
 aflpp = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(aflpp)
 

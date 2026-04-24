@@ -37,7 +37,7 @@ import importlib.util
 
 # Import modules
 spec_wrapper = importlib.util.spec_from_file_location(
-    "aflpp", Path(__file__).parent.parent / "afl++wrapper.py"
+    "aflpp", Path(__file__).parent.parent / "vibefuzzer.py"
 )
 aflpp = importlib.util.module_from_spec(spec_wrapper)
 spec_wrapper.loader.exec_module(aflpp)
@@ -90,7 +90,7 @@ class TestCompleteGUIWorkflow:
 
             # Step 4: Would call wrapper with configuration
             # (mocked since we can't actually fuzz)
-            cmd = ['python3', 'afl++wrapper.py', str(target_dir)]
+            cmd = ['python3', 'vibefuzzer.py', str(target_dir)]
 
             # Verify workflow chain
             assert cmd[0] == 'python3'

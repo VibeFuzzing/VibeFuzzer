@@ -15,8 +15,8 @@ Tests how components work together:
 - **TestWrapperArgumentParsing** - Args build valid command structure
 
 **Key Integration Points Tested:**
-- ✅ afl++wrapper.py → seed_gen.py → Ollama
-- ✅ afl++wrapper.py → tmux_ui.py → subprocess
+- ✅ vibefuzzer.py → seed_gen.py → Ollama
+- ✅ vibefuzzer.py → tmux_ui.py → subprocess
 - ✅ vibefuzzer_gui.py → terminal detection → subprocess
 - ✅ argument parsing → command construction pipeline
 
@@ -149,7 +149,7 @@ The `.github/workflows/tests.yml` now runs tests in 5 separate, clearly labeled 
 | Component | Unit | Integration | System | Interface |
 |-----------|------|-------------|--------|-----------|
 | vibefuzzer_gui.py | ✅ | ✅ | ✅ | ✅✅ |
-| afl++wrapper.py | ✅ | ✅ | ✅ | - |
+| vibefuzzer.py | ✅ | ✅ | ✅ | - |
 | seed_gen.py | ✅ | ✅ | ✅ | - |
 | tmux_ui.py | ✅ | ✅ | ✅ | - |
 | mutator.c | - | - | - | - (C tests) |
