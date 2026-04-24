@@ -164,8 +164,8 @@ class TestCompleteWrapperWorkflow:
                 binary='/target/binary',
                 input_dir=str(input_dir),
                 output_dir=str(tmpdir_path / 'output'),
-                base_env=env,
-                afl_args=[],
+                env=env,
+                extra_afl_args=[],
                 target_args=[],
                 debug_ui=False
             )
