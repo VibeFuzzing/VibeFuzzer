@@ -66,31 +66,16 @@ jobs:
       continue-on-error: true
       run: pytest tests/test_interface.py -v --tb=short -m interface
 
-    - name: Run All Tests with Coverage
-      id: coverage
-      continue-on-error: true
-      run: pytest tests/ -v --tb=short --cov=. --cov-report=term-missing --cov-report=xml
-
-    - name: Upload coverage reports
-      uses: codecov/codecov-action@v3
-      with:
-        files: ./coverage.xml
-        flags: unittests
-        name: codecov-umbrella
-        fail_ci_if_error: false
-
     - name: Check for failures
       if: |
         steps.unit.outcome == 'failure' ||
         steps.integration.outcome == 'failure' ||
         steps.system.outcome == 'failure' ||
-        steps.interface.outcome == 'failure' ||
-        steps.coverage.outcome == 'failure'
+        steps.interface.outcome == 'failure'
       run: |
         echo "One or more test suites failed:"
         echo "  unit:        ${{ steps.unit.outcome }}"
         echo "  integration: ${{ steps.integration.outcome }}"
         echo "  system:      ${{ steps.system.outcome }}"
         echo "  interface:   ${{ steps.interface.outcome }}"
-        echo "  coverage:    ${{ steps.coverage.outcome }}"
         exit 1
