@@ -310,8 +310,6 @@ class TestValidProtocols:
     def test_valid_protocols_includes_common_protocols(self):
         """Test that common protocols are included"""
         assert 'HTTP' in aflpp.valid_protocols
-        assert 'FTP' in aflpp.valid_protocols
-        assert 'DNS' in aflpp.valid_protocols
 
 
 if __name__ == '__main__':

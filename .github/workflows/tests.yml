@@ -49,7 +49,7 @@ jobs:
     - name: Run Unit Tests
       id: unit
       continue-on-error: true
-      run: pytest tests/test_afl_wrapper.py tests/test_seed_gen.py tests/test_tmux_ui.py tests/test_vibefuzzer_gui.py -v --tb=short -m "not integration and not system and not interface"
+      run: pytest tests/test_vibefuzzer.py tests/test_seed_gen.py tests/test_tmux_ui.py tests/test_vibefuzzer_gui.py -v --tb=short -m "not integration and not system and not interface"
 
     - name: Run Integration Tests
       id: integration

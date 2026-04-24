@@ -10,6 +10,7 @@ Tests cover:
 - Seed generation workflow
 """
 
+import importlib
 import pytest
 import sys
 import tempfile
@@ -19,7 +20,7 @@ import types
 
 # Add parent directory to path to import seed_gen
 sys.path.insert(0, str(Path(__file__).parent.parent))
-
+sys.modules.pop('seed_gen', None)  # Force fresh import
 # Mock ollama module before importing seed_gen
 sys.modules.setdefault('ollama', types.SimpleNamespace(
     list=Mock(),

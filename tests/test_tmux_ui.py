@@ -16,6 +16,7 @@ from unittest.mock import Mock, patch, MagicMock, call
 
 # Add parent directory to path to import tmux_ui
 sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.modules.pop('tmux_ui', None)  # Force fresh import
 
 import tmux_ui
 
