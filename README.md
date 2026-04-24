@@ -4,7 +4,11 @@ TODO: usage instructions
 
 ## Build instructions
 
-There is an all-in-one setup script hosted at (TODO) that has been tested to work on Ubuntu. The following are manual setup instructions, particularly for non-Ubuntu distros:
+There is an all-in-one setup script that has been tested to work on Ubuntu. To run it, use the following cURL command:
+
+`curl -fsSL https://raw.githubusercontent.com/VibeFuzzing/VibeFuzzer/refs/heads/main/setup.sh | sudo sh`
+
+The following are manual setup instructions, particularly for non-Ubuntu distros:
 
 ### Dependencies
 
