@@ -47,22 +47,27 @@ jobs:
         pip install -r requirements.txt
 
     - name: Run Unit Tests
+      id: unit
       continue-on-error: true
       run: pytest tests/test_afl_wrapper.py tests/test_seed_gen.py tests/test_tmux_ui.py tests/test_vibefuzzer_gui.py -v --tb=short -m "not integration and not system and not interface"
 
     - name: Run Integration Tests
+      id: integration
       continue-on-error: true
       run: pytest tests/test_integration.py -v --tb=short -m integration
 
     - name: Run System Tests
+      id: system
       continue-on-error: true
       run: pytest tests/test_system.py -v --tb=short -m system
 
     - name: Run Interface Tests
+      id: interface
       continue-on-error: true
       run: pytest tests/test_interface.py -v --tb=short -m interface
 
     - name: Run All Tests with Coverage
+      id: coverage
       continue-on-error: true
       run: pytest tests/ -v --tb=short --cov=. --cov-report=term-missing --cov-report=xml
 
@@ -73,3 +78,19 @@ jobs:
         flags: unittests
         name: codecov-umbrella
         fail_ci_if_error: false
+
+    - name: Check for failures
+      if: |
+        steps.unit.outcome == 'failure' ||
+        steps.integration.outcome == 'failure' ||
+        steps.system.outcome == 'failure' ||
+        steps.interface.outcome == 'failure' ||
+        steps.coverage.outcome == 'failure'
+      run: |
+        echo "One or more test suites failed:"
+        echo "  unit:        ${{ steps.unit.outcome }}"
+        echo "  integration: ${{ steps.integration.outcome }}"
+        echo "  system:      ${{ steps.system.outcome }}"
+        echo "  interface:   ${{ steps.interface.outcome }}"
+        echo "  coverage:    ${{ steps.coverage.outcome }}"
+        exit 1
