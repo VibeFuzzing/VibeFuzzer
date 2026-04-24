@@ -188,8 +188,8 @@ class TestBuildAFLppCmd:
             binary="/path/to/binary",
             input_dir="input",
             output_dir="output",
-            base_env={},
-            afl_args=[],
+            env={},
+            extra_afl_args=[],
             target_args=[],
             debug_ui=False
         )
@@ -203,8 +203,8 @@ class TestBuildAFLppCmd:
             binary="/path/to/binary",
             input_dir="input",
             output_dir="output",
-            base_env={},
-            afl_args=[],
+            env={},
+            extra_afl_args=[],
             target_args=[],
             debug_ui=False
         )
@@ -217,8 +217,8 @@ class TestBuildAFLppCmd:
             binary="/path/to/binary",
             input_dir="input",
             output_dir="output",
-            base_env={},
-            afl_args=[],
+            env={},
+            extra_afl_args=[],
             target_args=[],
             debug_ui=False
         )
@@ -233,8 +233,8 @@ class TestBuildAFLppCmd:
             binary="/path/to/binary",
             input_dir="input",
             output_dir="output",
-            base_env={},
-            afl_args=["-p", "fast"],
+            env={},
+            extra_afl_args=["-p", "fast"],
             target_args=["--config", "test.conf"],
             debug_ui=False
         )

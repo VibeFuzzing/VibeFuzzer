@@ -190,12 +190,17 @@ static void test_afl_custom_fuzz(void) {
     assert(data != NULL);
 
     uint8_t *out_buf = NULL;
-    size_t out_len = 0; // afl_custom_fuzz(data, NULL, 0, &out_buf, NULL, 0, 128);
+    size_t out_len = 0;
+    
+    // The mutator only calls the API every 200 iterations, so we need to call it 200 times
+    // to get the API result. This loop simulates what happens during fuzzing.
     for (int i = 0; i < 200; i++) {
         free(out_buf);
         out_buf = NULL;
         out_len = afl_custom_fuzz(data, NULL, 0, &out_buf, NULL, 0, 128);
     }
+    
+    // Verify we got the LLM response on the 200th call
     assert(out_len == 6);
     assert(out_buf != NULL);
     assert(out_buf[0] == 0);
