@@ -299,8 +299,8 @@ class TestWrapperArgumentParsing:
                 binary="/target/binary",
                 input_dir=args.input,
                 output_dir=args.output,
-                base_env=aflpp.setup_aflpp_env(),
-                afl_args=args.afl_args,
+                env=aflpp.setup_aflpp_env(),
+                extra_afl_args=args.afl_args,
                 target_args=args.target_args,
                 debug_ui=args.debug_ui
             )

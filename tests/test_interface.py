@@ -325,7 +325,7 @@ class TestUIProtocolSelection:
     def test_protocol_selection_reflects_valid_list(self):
         """Test that UI protocol choices match valid protocols"""
         from vibefuzzer_gui import VALID_PROTOCOLS
-        from afl_wrapper import valid_protocols
+        from vibefuzzer import valid_protocols
         
         # Both should have same protocols
         assert set(VALID_PROTOCOLS) == set(valid_protocols)
