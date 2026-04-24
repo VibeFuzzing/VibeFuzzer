@@ -270,7 +270,7 @@ class TestWrapperArgumentParsing:
             '--output', './findings',
             '--num-seeds', '20',
             '--debug-ui',
-            '--afl-args', '-p', 'fast',
+            '--afl-args',
         ]):
             args = aflpp.parse_args()
             
