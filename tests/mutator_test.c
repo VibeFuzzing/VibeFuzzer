@@ -190,7 +190,12 @@ static void test_afl_custom_fuzz(void) {
     assert(data != NULL);
 
     uint8_t *out_buf = NULL;
-    size_t out_len = afl_custom_fuzz(data, NULL, 0, &out_buf, NULL, 0, 128);
+    // size_t out_len = afl_custom_fuzz(data, NULL, 0, &out_buf, NULL, 0, 128);
+    for (int i = 0; i < 200; i++) {
+        free(out_buf);
+        out_buf = NULL;
+        out_len = afl_custom_fuzz(data, NULL, 0, &out_buf, NULL, 0, 128);
+    }
     assert(out_len == 6);
     assert(out_buf != NULL);
     assert(out_buf[0] == 0);
