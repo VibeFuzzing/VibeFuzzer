@@ -18,7 +18,7 @@ def launch_in_tmux(session_name: str, primary_cmd: list, primary_env: dict, seco
                 env_vars.append(f"{k}={shlex.quote(str(v))}")
         env_str = " ".join(env_vars)
         cmd_str = " ".join(shlex.quote(c) for c in cmd)
-        return f"{env_str} {cmd_str}"
+        return f"{env_str} {cmd_str}; tmux kill-session -t {shlex.quote(session_name)} 2>/dev/null"
 
     # Debug mode — both panes need their UI visible
     secondary_env = secondary_env.copy()
