@@ -31,7 +31,7 @@ jobs:
           echo "Error: ollama_test executable not found"
           exit 1
         fi
-        ./ollama_test || echo "ollama_test failed with exit code $?"
+        ./ollama_test
 
     - name: Run mutator_test
       working-directory: ./tests
@@ -41,7 +41,7 @@ jobs:
           echo "Error: mutator_test executable not found"
           exit 1
         fi
-        ./mutator_test || echo "mutator_test failed with exit code $?"
+        ./mutator_test
 
     - name: Clean up test artifacts
       working-directory: ./tests
@@ -70,28 +70,28 @@ jobs:
         echo "========================================="
         echo "Running Integration Tests"
         echo "========================================="
-        pytest tests/test_integration.py -v --tb=short -m integration || echo "Integration tests failed with exit code $?"
+        pytest tests/test_integration.py -v --tb=short -m integration
 
     - name: Run System Tests
       run: |
         echo "========================================="
         echo "Running System Tests (End-to-End)"
         echo "========================================="
-        pytest tests/test_system.py -v --tb=short -m system || echo "System tests failed with exit code $?"
+        pytest tests/test_system.py -v --tb=short -m system
 
     - name: Run Interface Tests
       run: |
         echo "========================================="
         echo "Running Interface Tests (GUI/UI)"
         echo "========================================="
-        pytest tests/test_interface.py -v --tb=short -m interface || echo "Interface tests failed with exit code $?"
+        pytest tests/test_interface.py -v --tb=short -m interface
 
     - name: Run All Tests with Coverage
       run: |
         echo "========================================="
         echo "Running All Tests with Coverage Report"
         echo "========================================="
-        pytest tests/ -v --tb=short --cov=. --cov-report=term-missing --cov-report=xml || echo "Tests with coverage failed with exit code $?"
+        pytest tests/ -v --tb=short --cov=. --cov-report=term-missing --cov-report=xml
 
     - name: Upload coverage reports
       uses: codecov/codecov-action@v3
