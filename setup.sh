@@ -41,10 +41,21 @@ source ~/.vibe-fuzzer/.venv/bin/activate
 python3 ~/.vibe-fuzzer/VibeFuzzer/vibefuzzer.py $@ && tmux attach -t vibefuzzer
 
 EOF
+
+cat > vibe-fuzz-gui << "EOF"
+
+source ~/.vibe-fuzzer/.venv/bin/activate
+python3 ~/.vibe-fuzzer/VibeFuzzer/vibefuzzer_gui.py $@
+
+EOF
+
 chmod +x vibe-fuzz
+ln -sf ./vibe-fuzz ~/.local/bin/vibe-fuzz
+chmod +x vibe-fuzz-gui
+ln -sf ./vibe-fuzz ~/.local/bin/vibe-fuzz-gui
 cd ..
 
-echo "export PATH=$PATH:$HOME/.vibe-fuzzer/bin" >> ~/.bashrc
+echo "export PATH=$PATH:$HOME/.local/bin" >> ~/.bashrc
 
 git clone https://www.github.com/VibeFuzzing/VibeFuzzer
 cd VibeFuzzer
