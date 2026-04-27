@@ -4,7 +4,15 @@ SUDO_SCRIPT=$(mktemp) && {
 
 cat > $SUDO_SCRIPT << "EOF"
 apt-get update
-apt-get install -y git curl python3-venv meson libcjson-dev libcurl4-openssl-dev tmux build-essential python3-dev automake cmake git flex bison libglib2.0-dev libpixman-1-dev python3-setuptools cargo libgtk-3-dev lld llvm llvm-dev clang gcc-$(gcc --version|head -n1|sed 's/\..*//'|sed 's/.* //')-plugin-dev libstdc++-$(gcc --version|head -n1|sed 's/\..*//'|sed 's/.* //')-dev ninja-build
+apt-get install \
+    git curl tmux \
+    automake cargo cmake meson ninja-build \
+    bison build-essential clang flex lld llvm llvm-dev \
+    python3-dev python3-setuptools python3-venv \
+    libcjson-dev libcurl4-openssl-dev libglib2.0-dev libpixman-1-dev libgtk-3-dev
+
+GCC_VERSION=$(gcc --version|head -n1|sed 's/\..*//'|sed 's/.* //')
+apt-get install gcc-$GCC_VERSION-plugin-dev libstdc++-$GCC_VERSION-dev
 EOF
   
 echo Installing packages with apt-get. This step requires root.
