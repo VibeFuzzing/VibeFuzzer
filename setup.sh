@@ -32,7 +32,6 @@ cd ~/.vibe-fuzzer
 mkdir .venv
 python3 -m venv .venv
 . .venv/bin/activate
-pip install -r requirements.txt
 
 mkdir bin
 cd bin
@@ -49,6 +48,7 @@ echo "export PATH=$PATH:$HOME/.vibe-fuzzer/bin" >> ~/.bashrc
 
 git clone https://www.github.com/VibeFuzzing/VibeFuzzer
 cd VibeFuzzer
+pip install -r requirements.txt
 
 git clone https://github.com/AFLplusplus/AFLplusplus
 cd AFLplusplus
