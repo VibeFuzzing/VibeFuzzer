@@ -1,7 +1,19 @@
 currentdir=`pwd`
 
-sudo apt-get update
-sudo apt-get install -y git curl python3-venv meson libcjson-dev libcurl4-openssl-dev tmux build-essential python3-dev automake cmake git flex bison libglib2.0-dev libpixman-1-dev python3-setuptools cargo libgtk-3-dev lld llvm llvm-dev clang gcc-$(gcc --version|head -n1|sed 's/\..*//'|sed 's/.* //')-plugin-dev libstdc++-$(gcc --version|head -n1|sed 's/\..*//'|sed 's/.* //')-dev ninja-build
+SUDO_SCRIPT=$(mktemp) && {
+
+cat > $SUDO_SCRIPT << "EOF"
+apt-get update
+apt-get install -y git curl python3-venv meson libcjson-dev libcurl4-openssl-dev tmux build-essential python3-dev automake cmake git flex bison libglib2.0-dev libpixman-1-dev python3-setuptools cargo libgtk-3-dev lld llvm llvm-dev clang gcc-$(gcc --version|head -n1|sed 's/\..*//'|sed 's/.* //')-plugin-dev libstdc++-$(gcc --version|head -n1|sed 's/\..*//'|sed 's/.* //')-dev ninja-build
+EOF
+  
+echo Installing packages with apt-get. This step requires root.
+
+sudo sh $SUDO_SCRIPT
+
+rm -f $SUDO_SCRIPT
+
+} || echo Unable to verify required packages are installed
 
 curl -fsSL https://ollama.com/install.sh | sh
 
