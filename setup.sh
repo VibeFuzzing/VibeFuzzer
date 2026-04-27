@@ -4,7 +4,7 @@ SUDO_SCRIPT=$(mktemp) && {
 
 cat > $SUDO_SCRIPT << "EOF"
 apt-get update
-apt-get install \
+apt-get install -y \
     git curl tmux \
     automake cargo cmake meson ninja-build \
     bison build-essential clang flex lld llvm llvm-dev \
