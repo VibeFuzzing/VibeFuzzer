@@ -39,7 +39,7 @@ class TestLaunchInTmux:
         tmux_ui.launch_in_tmux('test_session', primary_cmd, primary_env, secondary_cmd, secondary_env)
 
         # Verify tmux commands were called
-        assert mock_run.called
+        assert mock_run.calle. 
         calls = mock_run.call_args_list
         
         # Should have called kill-session, new-session, send-keys (twice), and split-window

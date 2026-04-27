@@ -19,6 +19,85 @@ ctk.set_appearance_mode("dark")
 
 VALID_PROTOCOLS = ["HTTP"]
 
+HELP_SECTIONS = [
+    ("Overview", """VibeFuzzer is an AFL++-based network fuzzer that uses an LLM mutator to intelligently generate and mutate protocol-aware inputs. It wraps AFL++, libdesock, and an Ollama-powered C mutator into a single GUI workflow."""),
+
+    ("Quick Start", """1. Select the target source folder (the directory containing the server's source code).
+2. Optionally specify a binary path relative to the source folder (e.g. objs/nginx). Leave blank to auto-detect.
+3. Choose the protocol the target speaks (HTTP, FTP, SMTP, etc).
+4. Set input/output directories, or leave blank to use ./input and ./output.
+5. Click Start. VibeFuzzer will build the target, generate seeds, and launch AFL++ in a tmux session."""),
+
+    ("Target Source Folder", """The root directory of the server you want to fuzz. VibeFuzzer will instrument and build it automatically using afl-clang-fast.
+
+Supported build systems: CMake, Meson, Autotools (./configure), and plain Make. If none are detected, standard Make is used as a fallback."""),
+
+    ("Target Binary (optional)", """The path to the compiled binary, relative to the source folder. For example:
+  objs/nginx
+  src/server
+  build/ftpd
+
+If left unchecked, VibeFuzzer will auto-scan the source directory for instrumented ELF executables after building. Auto-detection fails if multiple instrumented binaries are found — in that case, specify the binary explicitly."""),
+
+    ("Protocol", """The network protocol the target speaks. This is used to generate meaningful seed inputs for the LLM and for corpus initialisation.
+
+Supported: HTTP, FTP, SMTP, RTSP, DNS, SIP.
+
+If your protocol isn't listed, select the closest match or use --no-llm-seeds with a manual corpus."""),
+
+    ("Input / Output Directories", """Input: the seed corpus directory. AFL++ reads initial inputs from here. Defaults to ./input.
+Output: where AFL++ writes crashes, hangs, and coverage data. Defaults to ./output.
+
+If LLM seeds are enabled, VibeFuzzer will populate the input directory automatically before fuzzing starts. If you disable LLM seeds, the input directory must contain at least one seed file."""),
+
+    ("LLM Seeds", """By default, VibeFuzzer uses Ollama (afl-mutator model) to generate protocol-aware seed inputs before fuzzing. This requires Ollama to be running locally.
+
+Num Seeds: how many seeds to generate (default 10). More seeds improve initial coverage but slow startup.
+
+Disable LLM Seeds: skip generation entirely and use your existing corpus. You must provide at least one seed in the input directory."""),
+
+    ("Custom Build / Configure / Make Args", """Override or augment the build process:
+
+Custom Build Command: replaces the entire build step with a shell command you provide. The AFL++ compiler wrappers (CC=afl-clang-fast) are prepended automatically.
+
+Configure Args: extra arguments passed to ./configure or cmake/meson setup (e.g. --disable-ssl).
+
+Make Args: extra arguments for the compile step (e.g. -j4)."""),
+
+    ("AFL Args", """Extra flags passed directly to afl-fuzz before the -- separator. Examples:
+  -p fast          use the fast power schedule
+  -p explore       use the exploration schedule
+  -c /path/to/cmplog   enable CmpLog for better coverage
+
+These are applied to both the primary and secondary AFL++ instances."""),
+
+    ("Target Args", """Arguments passed to the target binary after the -- separator in the afl-fuzz command. Use these for flags your server needs at startup. Example:
+  -c /etc/nginx/fuzz.conf
+  -p 8080"""),
+
+    ("Fuzzing Instances", """VibeFuzzer runs two AFL++ instances in parallel inside a tmux session:
+
+Primary (afl-fuzz -M): the main instance running standard AFL++ mutations.
+Secondary (afl-fuzz -S): a secondary instance using the custom LLM mutator. It queries Ollama every 200 executions to generate semantically meaningful mutations based on the current corpus.
+
+Both instances share the same output directory and synchronise their queues automatically via AFL++'s parallel fuzzing protocol."""),
+
+    ("Results & Reports", """When the tmux session ends, VibeFuzzer shows a results screen with:
+  - Execution count, exec/sec, paths found, crashes, hangs
+  - Per-instance breakdown table
+  - Coverage and performance charts
+  - Crash and hang file listing
+
+Click Export PDF to save a full report. Click Run Again to start a new session."""),
+
+    ("Prerequisites", """Before using VibeFuzzer, run setup.sh to build all dependencies:
+  ./setup.sh
+
+This builds AFL++, libdesock, and the LLM mutator (.so). It also pulls the afl-mutator Ollama model.
+
+Requirements: clang, make, cmake, libcurl, libcjson, tmux, ollama."""),
+]
+
 
 class VibeFuzzerGUI(ctk.CTk):
     def __init__(self):
@@ -41,6 +120,67 @@ class VibeFuzzerGUI(ctk.CTk):
         self.build_config_screen()
 
     # =========================================================
+    # HELP SCREEN
+    # =========================================================
+    def show_help(self):
+        self.clear()
+        self.geometry("900x750")
+
+        outer = ctk.CTkFrame(self)
+        outer.pack(fill="both", expand=True)
+
+        # Title bar
+        title_bar = ctk.CTkFrame(outer, fg_color="#1a1a2e")
+        title_bar.pack(fill="x")
+        ctk.CTkLabel(
+            title_bar, text="VibeFuzzer — Help",
+            font=("Courier Bold", 18), text_color="#00ff88"
+        ).pack(side="left", padx=20, pady=12)
+        ctk.CTkButton(
+            title_bar, text="← Back",
+            width=90, fg_color="#333355", hover_color="#444466",
+            font=("Courier", 12), text_color="#cccccc",
+            command=self.build_config_screen
+        ).pack(side="right", padx=15, pady=10)
+
+        # Scrollable content
+        scroll = ctk.CTkScrollableFrame(outer, fg_color="#0d0d1a")
+        scroll.pack(fill="both", expand=True, padx=0, pady=0)
+
+        for section_title, section_body in HELP_SECTIONS:
+            # Section header
+            header_frame = ctk.CTkFrame(scroll, fg_color="#111133", corner_radius=0)
+            header_frame.pack(fill="x", padx=16, pady=(14, 0))
+            ctk.CTkLabel(
+                header_frame,
+                text=section_title.upper(),
+                font=("Courier Bold", 11),
+                text_color="#00ff88",
+                anchor="w"
+            ).pack(padx=14, pady=6, anchor="w")
+
+            # Section body
+            body_frame = ctk.CTkFrame(scroll, fg_color="#0f0f1e", corner_radius=0)
+            body_frame.pack(fill="x", padx=16, pady=(0, 2))
+            ctk.CTkLabel(
+                body_frame,
+                text=section_body,
+                font=("Courier", 11),
+                text_color="#aaaaaa",
+                anchor="w",
+                justify="left",
+                wraplength=820,
+            ).pack(padx=14, pady=10, anchor="w")
+
+        # Bottom back button
+        ctk.CTkButton(
+            scroll, text="← Back to Configuration",
+            fg_color="#1a1a2e", hover_color="#333355",
+            font=("Courier", 12), text_color="#00ff88",
+            command=self.build_config_screen
+        ).pack(pady=20)
+
+    # =========================================================
     # CONFIG SCREEN
     # =========================================================
     def build_config_screen(self):
@@ -49,7 +189,15 @@ class VibeFuzzerGUI(ctk.CTk):
         frame = ctk.CTkFrame(self)
         frame.pack(padx=20, pady=20, fill="both", expand=True)
 
-        ctk.CTkLabel(frame, text="Vibe Fuzzer", font=("Arial", 24)).pack(pady=10)
+        title_row = ctk.CTkFrame(frame, fg_color="transparent")
+        title_row.pack(fill="x", pady=(0, 5))
+        ctk.CTkLabel(title_row, text="Vibe Fuzzer", font=("Arial", 24)).pack(side="left", padx=4)
+        ctk.CTkButton(
+            title_row, text="?", width=32, height=32,
+            fg_color="#1a1a2e", hover_color="#333355",
+            font=("Courier Bold", 14), text_color="#00ff88",
+            command=self.show_help
+        ).pack(side="right", padx=4)
 
         self.target_source_dir = self.clickable_file_entry(
             frame, "Select Target Source Folder"
@@ -282,7 +430,6 @@ class VibeFuzzerGUI(ctk.CTk):
             messagebox.showerror("Error", "Invalid output directory.")
             return
 
-        # use defaults if fields are empty, but still create dirs if they don't exist
         input_dir = self.input_dir.get() or "./input"
         output_dir = self.output_dir.get() or "./output"
 
@@ -295,7 +442,7 @@ class VibeFuzzerGUI(ctk.CTk):
         if self.no_llm.get() and self.is_dir_empty(directory):
             messagebox.showerror("Error", "Input directory must contain at least one seed when LLM seeds are disabled.")
             return
-        
+
         binary_path = None
 
         if self.use_target_binary.get():
@@ -307,11 +454,9 @@ class VibeFuzzerGUI(ctk.CTk):
 
             binary_name = Path(binary_path).name
         else:
-            # fallback to source dir
             target_dir = self.target_source_dir.get()
-            binary_name = ""  # or handle differently depending on your wrapper
+            binary_name = ""
 
-        # We cannot assume target_dir will always be the binary's parent 
         target_dir = self.target_source_dir.get()
 
         cmd = ["python3", "vibefuzzer.py", target_dir]
@@ -416,10 +561,6 @@ class VibeFuzzerGUI(ctk.CTk):
         return d
 
     def parse_all_stats(self):
-        """
-        Find all fuzzer_stats files, parse them, and return a merged
-        summary dict plus a list of per-instance dicts.
-        """
         output_dir = Path(self.final_output_dir)
         stats_files = sorted(output_dir.rglob("fuzzer_stats"))
 
@@ -453,7 +594,6 @@ class VibeFuzzerGUI(ctk.CTk):
             "saved_hangs":    sum(ival(i, "saved_hangs") for i in instances),
             "peak_rss_mb":    sum(ival(i, "peak_rss_mb") for i in instances),
             "max_depth":      max(ival(i, "max_depth") for i in instances),
-            # Single-value fields from first instance
             "start_time":     instances[0].get("start_time", ""),
             "last_update":    instances[0].get("last_update", ""),
             "afl_banner":     instances[0].get("afl_banner", ""),
@@ -501,7 +641,6 @@ class VibeFuzzerGUI(ctk.CTk):
         outer = ctk.CTkFrame(self)
         outer.pack(fill="both", expand=True)
 
-        # Title bar
         title_bar = ctk.CTkFrame(outer, fg_color="#1a1a2e")
         title_bar.pack(fill="x")
         ctk.CTkLabel(title_bar, text="AFL++ Fuzzing Report",
@@ -524,7 +663,6 @@ class VibeFuzzerGUI(ctk.CTk):
                          font=("Courier", 14), text_color="#ff4444").pack(pady=40)
             return
 
-        # ── Summary cards ──────────────────────────────────────
         cards_frame = ctk.CTkFrame(scroll, fg_color="transparent")
         cards_frame.pack(fill="x", pady=(0, 10))
 
@@ -549,7 +687,6 @@ class VibeFuzzerGUI(ctk.CTk):
             ctk.CTkLabel(card, text=value, font=("Courier Bold", 18), text_color=color).pack(pady=(10, 2))
             ctk.CTkLabel(card, text=label, font=("Courier", 9), text_color="#666666").pack(pady=(0, 10))
 
-        # ── Charts ─────────────────────────────────────────────
         ctk.CTkLabel(scroll, text="COVERAGE & PERFORMANCE",
                      font=("Courier Bold", 13), text_color="#00ff88").pack(anchor="w", padx=4, pady=(10, 4))
 
@@ -590,7 +727,6 @@ class VibeFuzzerGUI(ctk.CTk):
 
         bar_colors = [COLORS[i % len(COLORS)] for i in range(len(labels))]
 
-        # Paths per instance (horizontal bar)
         style_ax(ax_paths, "Paths Found per Instance")
         bars = ax_paths.barh(labels, paths_vals, color=bar_colors, edgecolor="#333344", height=0.5)
         for bar, val in zip(bars, paths_vals):
@@ -599,13 +735,11 @@ class VibeFuzzerGUI(ctk.CTk):
                           f"{val:,}", va="center", ha="left", color="#aaaaaa", fontsize=8)
         ax_paths.set_xlabel("Paths", color="#aaaaaa", fontsize=8)
 
-        # Exec/sec per instance
         style_ax(ax_eps, "Exec/sec per Instance")
         ax_eps.bar(labels, eps_vals, color=bar_colors, edgecolor="#333344")
         ax_eps.set_ylabel("exec/s", color="#aaaaaa", fontsize=8)
         ax_eps.tick_params(axis="x", rotation=20)
 
-        # Crashes & hangs grouped
         style_ax(ax_crashes, "Crashes & Hangs")
         x = list(range(len(labels)))
         w = 0.35
@@ -617,13 +751,11 @@ class VibeFuzzerGUI(ctk.CTk):
         ax_crashes.set_xticklabels(labels, rotation=20, fontsize=7)
         ax_crashes.legend(fontsize=7, facecolor="#1a1a2e", labelcolor="#aaaaaa")
 
-        # Corpus count
         style_ax(ax_corpus, "Corpus Size per Instance")
         ax_corpus.bar(labels, corpus_vals, color=bar_colors, edgecolor="#333344")
         ax_corpus.set_ylabel("entries", color="#aaaaaa", fontsize=8)
         ax_corpus.tick_params(axis="x", rotation=20)
 
-        # Max depth
         style_ax(ax_depth, "Max Call Depth per Instance")
         ax_depth.bar(labels, depth_vals, color=bar_colors, edgecolor="#333344")
         ax_depth.set_ylabel("depth", color="#aaaaaa", fontsize=8)
@@ -633,7 +765,6 @@ class VibeFuzzerGUI(ctk.CTk):
         canvas_widget.draw()
         canvas_widget.get_tk_widget().pack(fill="x", pady=(0, 10))
 
-        # ── Per-instance table ─────────────────────────────────
         ctk.CTkLabel(scroll, text="PER-INSTANCE BREAKDOWN",
                      font=("Courier Bold", 13), text_color="#00ff88").pack(anchor="w", padx=4, pady=(10, 4))
 
@@ -671,7 +802,6 @@ class VibeFuzzerGUI(ctk.CTk):
                 ctk.CTkLabel(row, text=val, font=("Courier", 10),
                              text_color="#cccccc", width=cw, anchor="center").pack(side="left", padx=2, pady=4)
 
-        # Combined totals row
         totals_row = ctk.CTkFrame(table_frame, fg_color="#1e1e3a")
         totals_row.pack(fill="x")
         totals = [
@@ -690,7 +820,6 @@ class VibeFuzzerGUI(ctk.CTk):
             ctk.CTkLabel(totals_row, text=val, font=("Courier Bold", 10),
                          text_color="#ffcc00", width=cw, anchor="center").pack(side="left", padx=2, pady=5)
 
-        # ── Crash file list ────────────────────────────────────
         if crash_files or hang_files:
             ctk.CTkLabel(scroll, text="CRASH & HANG FILES",
                          font=("Courier Bold", 13), text_color="#ff4444").pack(anchor="w", padx=4, pady=(10, 4))
@@ -708,7 +837,6 @@ class VibeFuzzerGUI(ctk.CTk):
                     crash_box.insert("end", f"  {f}\n")
             crash_box.configure(state="disabled")
 
-        # ── Run metadata ───────────────────────────────────────
         ctk.CTkLabel(scroll, text="RUN METADATA",
                      font=("Courier Bold", 13), text_color="#00ff88").pack(anchor="w", padx=4, pady=(10, 4))
 
@@ -763,7 +891,6 @@ class VibeFuzzerGUI(ctk.CTk):
             HRFlowable, Image, KeepTogether
         )
 
-        # ── Colour palette (mirrors GUI) ──────────────────────
         BG         = colors.HexColor("#0d0d1a")
         CARD_BG    = colors.HexColor("#1e1e2e")
         ROW_A      = colors.HexColor("#131325")
@@ -798,7 +925,6 @@ class VibeFuzzerGUI(ctk.CTk):
             canv.rect(0, 0, W, H, fill=1, stroke=0)
             canv.restoreState()
 
-        # ── Styles ────────────────────────────────────────────
         def sty(name, font="Courier", size=10, color=TEXT, bold=False,
                 leading=None, space_before=0, space_after=4, align=0):
             return ParagraphStyle(
@@ -831,12 +957,10 @@ class VibeFuzzerGUI(ctk.CTk):
 
         story = []
 
-        # ── Title bar ─────────────────────────────────────────
         story.append(Paragraph("AFL++ Fuzzing Report", title_sty))
         story.append(Paragraph(f"{len(instances)} instance(s) combined  ·  Output: {self.final_output_dir}", subtitle_sty))
         story.append(HRFlowable(width="100%", thickness=1, color=GREEN, spaceAfter=10))
 
-        # ── Summary cards table ───────────────────────────────
         story.append(Paragraph("SUMMARY", section_sty))
 
         cards = [
@@ -850,7 +974,6 @@ class VibeFuzzerGUI(ctk.CTk):
             ("CORPUS SIZE",    f"{merged['corpus_count']:,}",      LIGHT_GREEN),
         ]
 
-        # Build 4-column card rows (2 rows of 4)
         CARD_W = (W - MARGIN * 2) / 4
 
         def card_cell(label, value, color):
@@ -881,7 +1004,6 @@ class VibeFuzzerGUI(ctk.CTk):
             story.append(row_table)
             story.append(Spacer(1, 4))
 
-        # ── Charts ────────────────────────────────────────────
         story.append(Paragraph("COVERAGE &amp; PERFORMANCE", section_sty))
 
         chart_buf = self._render_charts_image(merged, instances)
@@ -890,7 +1012,6 @@ class VibeFuzzerGUI(ctk.CTk):
             story.append(img)
             story.append(Spacer(1, 6))
 
-        # ── Per-instance table ─────────────────────────────────
         story.append(Paragraph("PER-INSTANCE BREAKDOWN", section_sty))
 
         headers = ["Instance", "Execs", "Exec/s", "Paths", "Crashes",
@@ -919,7 +1040,6 @@ class VibeFuzzerGUI(ctk.CTk):
                 cell_p(inst.get("bitmap_cvg", "n/a")),
             ])
 
-        # Totals row
         table_data.append([
             cell_p("COMBINED", YELLOW),
             cell_p(f"{merged['execs_done']:,}",       YELLOW),
@@ -950,7 +1070,6 @@ class VibeFuzzerGUI(ctk.CTk):
         tbl.setStyle(TableStyle(row_styles))
         story.append(tbl)
 
-        # ── Crash file list ────────────────────────────────────
         if crash_files or hang_files:
             story.append(Paragraph("CRASH &amp; HANG FILES", sty("cs", size=12, color=RED, bold=True, space_before=14, space_after=4)))
             crash_lines = []
@@ -972,7 +1091,6 @@ class VibeFuzzerGUI(ctk.CTk):
             ]))
             story.append(crash_tbl)
 
-        # ── Metadata ──────────────────────────────────────────
         story.append(Paragraph("RUN METADATA", section_sty))
         meta_rows = [
             ("Target",        merged.get("afl_banner",   "n/a")),
@@ -1003,10 +1121,6 @@ class VibeFuzzerGUI(ctk.CTk):
         doc.build(story, onFirstPage=bg_canvas, onLaterPages=bg_canvas)
 
     def _render_charts_image(self, merged, instances):
-        """
-        Render high-quality, publication-ready charts and return a PNG buffer.
-        Optimized for readability in PDFs.
-        """
         import io
         matplotlib.use("Agg")
         import numpy as np
@@ -1030,23 +1144,18 @@ class VibeFuzzerGUI(ctk.CTk):
         n = len(labels)
         x = np.arange(n)
 
-        # ── Figure setup (wider + taller for print clarity) ──
         fig = plt.figure(figsize=(16, 10), facecolor="#0d0d1a")
-
-        # Grid: big top chart + 2 rows of smaller charts
         gs = fig.add_gridspec(3, 2, height_ratios=[1.2, 1, 1], hspace=0.55, wspace=0.3)
 
-        ax_paths   = fig.add_subplot(gs[0, :])   # full width
+        ax_paths   = fig.add_subplot(gs[0, :])
         ax_eps     = fig.add_subplot(gs[1, 0])
         ax_crashes = fig.add_subplot(gs[1, 1])
         ax_corpus  = fig.add_subplot(gs[2, 0])
         ax_depth   = fig.add_subplot(gs[2, 1])
 
-        # ── Color palette ──
         COLORS = ["#00ff88", "#00ccff", "#ffcc00", "#ff4444", "#cc88ff", "#ff8800"]
         bar_colors = [COLORS[i % len(COLORS)] for i in range(n)]
 
-        # ── Styling helper ──
         def style_ax(ax, title):
             ax.set_facecolor("#111122")
             ax.set_title(title, color="#ffffff", fontsize=12, pad=10, weight="bold")
@@ -1055,82 +1164,45 @@ class VibeFuzzerGUI(ctk.CTk):
                 spine.set_edgecolor("#333344")
             ax.grid(axis="x", linestyle="--", alpha=0.2)
 
-        # ─────────────────────────────────────────────
-        # 1. PATHS (PRIMARY CHART - horizontal, full width)
-        # ─────────────────────────────────────────────
         style_ax(ax_paths, "Coverage Growth (Paths Found per Instance)")
-
         bars = ax_paths.barh(labels, paths_vals, color=bar_colors, edgecolor="#222233", height=0.6)
-
         max_val = max(paths_vals) if paths_vals else 1
         for bar, val in zip(bars, paths_vals):
-            ax_paths.text(
-                bar.get_width() + max_val * 0.01,
-                bar.get_y() + bar.get_height() / 2,
-                f"{val:,}",
-                va="center",
-                ha="left",
-                color="#dddddd",
-                fontsize=10
-            )
-
+            ax_paths.text(bar.get_width() + max_val * 0.01, bar.get_y() + bar.get_height() / 2,
+                          f"{val:,}", va="center", ha="left", color="#dddddd", fontsize=10)
         ax_paths.set_xlabel("Total Paths Discovered", color="#cccccc", fontsize=10)
 
-        # ─────────────────────────────────────────────
-        # 2. EXECUTION SPEED
-        # ─────────────────────────────────────────────
         style_ax(ax_eps, "Execution Throughput (exec/sec)")
         ax_eps.bar(x, eps_vals, color=bar_colors, edgecolor="#222233")
         ax_eps.set_xticks(x)
         ax_eps.set_xticklabels(labels, rotation=30, ha="right")
         ax_eps.set_ylabel("exec/sec", color="#cccccc", fontsize=10)
 
-        # ─────────────────────────────────────────────
-        # 3. CRASHES & HANGS
-        # ─────────────────────────────────────────────
         style_ax(ax_crashes, "Stability (Crashes & Hangs)")
         width = 0.4
-
-        ax_crashes.bar(x - width/2, crash_vals, width,
-                    label="Crashes", edgecolor="#222233")
-        ax_crashes.bar(x + width/2, hang_vals, width,
-                    label="Hangs", edgecolor="#222233")
-
+        ax_crashes.bar(x - width/2, crash_vals, width, label="Crashes", edgecolor="#222233")
+        ax_crashes.bar(x + width/2, hang_vals, width, label="Hangs", edgecolor="#222233")
         ax_crashes.set_xticks(x)
         ax_crashes.set_xticklabels(labels, rotation=30, ha="right")
         ax_crashes.legend(frameon=False, fontsize=9)
         ax_crashes.set_ylabel("Count", color="#cccccc", fontsize=10)
 
-        # ─────────────────────────────────────────────
-        # 4. CORPUS SIZE
-        # ─────────────────────────────────────────────
         style_ax(ax_corpus, "Corpus Growth")
         ax_corpus.bar(x, corpus_vals, color=bar_colors, edgecolor="#222233")
         ax_corpus.set_xticks(x)
         ax_corpus.set_xticklabels(labels, rotation=30, ha="right")
         ax_corpus.set_ylabel("Inputs", color="#cccccc", fontsize=10)
 
-        # ─────────────────────────────────────────────
-        # 5. MAX DEPTH
-        # ─────────────────────────────────────────────
         style_ax(ax_depth, "Exploration Depth")
         ax_depth.bar(x, depth_vals, color=bar_colors, edgecolor="#222233")
         ax_depth.set_xticks(x)
         ax_depth.set_xticklabels(labels, rotation=30, ha="right")
         ax_depth.set_ylabel("Call Depth", color="#cccccc", fontsize=10)
 
-        # ── Tight layout for clean PDF embedding ──
         plt.tight_layout()
 
-        # ── Export high-res image ──
         buf = io.BytesIO()
-        fig.savefig(
-            buf,
-            format="png",
-            dpi=220,
-            facecolor="#0d0d1a",
-            bbox_inches="tight"
-        )
+        fig.savefig(buf, format="png", dpi=220, facecolor="#0d0d1a", bbox_inches="tight")
         buf.seek(0)
         plt.close(fig)
 
