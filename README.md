@@ -6,7 +6,7 @@ TODO: usage instructions
 
 There is an all-in-one setup script that has been tested to work on Ubuntu. To run it, use the following cURL command:
 
-`curl -fsSL https://raw.githubusercontent.com/VibeFuzzing/VibeFuzzer/refs/heads/main/setup.sh | sudo sh`
+`curl -fsSL https://raw.githubusercontent.com/VibeFuzzing/VibeFuzzer/refs/heads/main/setup.sh | sh`
 
 The following are manual setup instructions, particularly for non-Ubuntu distros:
 
