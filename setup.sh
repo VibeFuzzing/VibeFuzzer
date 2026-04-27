@@ -64,7 +64,7 @@ pip install -r requirements.txt
 git clone https://github.com/AFLplusplus/AFLplusplus
 cd AFLplusplus
 make distrib
-sudo make install
+make PREFIX=$HOME/.local install
 cd ..
 
 git clone https://github.com/fkie-cad/libdesock
