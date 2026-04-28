@@ -51,16 +51,6 @@ jobs:
       continue-on-error: true
       run: pytest tests/test_vibefuzzer.py tests/test_seed_gen.py tests/test_tmux_ui.py tests/test_vibefuzzer_gui.py -v --tb=short -m "not integration and not system and not interface"
 
-    # - name: Run Integration Tests
-    #   id: integration
-    #   continue-on-error: true
-    #   run: pytest tests/test_integration.py -v --tb=short -m integration
-
-    # - name: Run System Tests
-    #   id: system
-    #   continue-on-error: true
-    #   run: pytest tests/test_system.py -v --tb=short -m system
-
     - name: Run Interface Tests
       id: interface
       continue-on-error: true
@@ -75,7 +65,5 @@ jobs:
       run: |
         echo "One or more test suites failed:"
         echo "  unit:        ${{ steps.unit.outcome }}"
-        # echo "  integration: ${{ steps.integration.outcome }}"
-        # echo "  system:      ${{ steps.system.outcome }}"
         echo "  interface:   ${{ steps.interface.outcome }}"
         exit 1
