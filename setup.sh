@@ -12,7 +12,7 @@ apt-get install -y \
     libcjson-dev libcurl4-openssl-dev libglib2.0-dev libpixman-1-dev libgtk-3-dev
 
 GCC_VERSION=$(gcc --version|head -n1|sed 's/\..*//'|sed 's/.* //')
-apt-get install gcc-$GCC_VERSION-plugin-dev libstdc++-$GCC_VERSION-dev
+apt-get install -y gcc-$GCC_VERSION-plugin-dev libstdc++-$GCC_VERSION-dev
 EOF
   
 echo Installing packages with apt-get. This step requires root.
