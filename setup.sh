@@ -37,15 +37,18 @@ mkdir bin
 cd bin
 cat > vibe-fuzz << "EOF"
 
-source ~/.vibe-fuzzer/.venv/bin/activate
+. ~/.vibe-fuzzer/.venv/bin/activate
 python3 ~/.vibe-fuzzer/VibeFuzzer/vibefuzzer.py $@ && tmux attach -t vibefuzzer
 
 EOF
 
 cat > vibe-fuzz-gui << "EOF"
 
-source ~/.vibe-fuzzer/.venv/bin/activate
-python3 ~/.vibe-fuzzer/VibeFuzzer/vibefuzzer_gui.py $@
+currentdir=`pwd`
+. ~/.vibe-fuzzer/.venv/bin/activate
+cd ~/.vibe-fuzzer/VibeFuzzer
+python3 vibefuzzer_gui.py $@
+cd $currentdir
 
 EOF
 
