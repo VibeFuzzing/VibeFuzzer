@@ -59,8 +59,6 @@ jobs:
     - name: Check for failures
       if: |
         steps.unit.outcome == 'failure' ||
-        # steps.integration.outcome == 'failure' ||
-        # steps.system.outcome == 'failure' ||
         steps.interface.outcome == 'failure'
       run: |
         echo "One or more test suites failed:"
