@@ -55,7 +55,7 @@ chmod +x vibe-fuzz-gui
 ln -sf ./vibe-fuzz ~/.local/bin/vibe-fuzz-gui
 cd ..
 
-echo "export PATH=$PATH:$HOME/.local/bin" >> ~/.bashrc
+echo 'export PATH=$PATH:$HOME/.local/bin' >> ~/.bashrc
 
 git clone https://www.github.com/VibeFuzzing/VibeFuzzer
 cd VibeFuzzer
