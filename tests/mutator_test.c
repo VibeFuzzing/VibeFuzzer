@@ -214,6 +214,253 @@ static void test_afl_custom_fuzz(void) {
 }
 
 /**
+ * @brief  Test queue management with a single queue entry. Verifies that the mutator correctly accesses and reads the single queue entry without corruption.
+ * 
+ */
+static void test_queue_single_entry(void) {
+    setenv("OLLAMA_URL", "http://localhost:11434", 1);
+    setenv("OLLAMA_MODEL", "test-model", 1);
+    reset_http_mock();
+
+    set_http_mock_expectations(
+        "POST",
+        "http://localhost:11434/api/chat",
+        "\"messages\"",
+        "{\"message\": {\"role\": \"assistant\", \"content\": \"test_output\"}, \"done\": 1, \"done_reason\": \"stop\"}"
+    );
+
+    char template[] = "/tmp/queue_test_single.XXXXXX";
+    int fd = mkstemp(template);
+    assert(fd >= 0);
+    
+    const char payload[] = "test_seed";
+    write(fd, payload, sizeof(payload) - 1);
+    close(fd);
+
+    struct queue_entry entry = {
+        .id = 42,
+        .depth = 5,
+        .bitmap_size = 128,
+        .favored = true,
+        .has_new_cov = true,
+        .fname = template,
+    };
+    struct queue_entry *queue_buf[1] = {&entry};
+    afl_state_t afl = {.queued_items = 1, .queue_buf = queue_buf};
+
+    // Verify queue state before fuzzing
+    assert(afl.queued_items == 1);
+    assert(afl.queue_buf[0]->id == 42);
+    assert(afl.queue_buf[0]->depth == 5);
+    assert(afl.queue_buf[0]->bitmap_size == 128);
+    assert(afl.queue_buf[0]->favored == true);
+    assert(afl.queue_buf[0]->has_new_cov == true);
+
+    llm_mutator_t *data = afl_custom_init(&afl, 42);
+    assert(data != NULL);
+
+    uint8_t *out_buf = NULL;
+    size_t out_len = 0;
+    
+    // Call 200 times to trigger API call
+    for (int i = 0; i < 200; i++) {
+        free(out_buf);
+        out_buf = NULL;
+        out_len = afl_custom_fuzz(data, NULL, 0, &out_buf, NULL, 0, 128);
+    }
+    
+    // Verify queue state remains unchanged after fuzzing
+    assert(afl.queued_items == 1);
+    assert(afl.queue_buf[0]->id == 42);
+    assert(afl.queue_buf[0]->depth == 5);
+    assert(afl.queue_buf[0]->bitmap_size == 128);
+    assert(afl.queue_buf[0]->favored == true);
+    assert(afl.queue_buf[0]->has_new_cov == true);
+
+    // Verify output was generated
+    assert(out_len > 0);
+    assert(out_buf != NULL);
+
+    free(out_buf);
+    afl_custom_deinit(data);
+    unlink(template);
+    remove("llm-mutator-log.txt");
+}
+
+/**
+ * @brief  Test queue management with multiple queue entries. Verifies that all entries are correctly accessed and their fields remain consistent throughout fuzzing.
+ * 
+ */
+static void test_queue_multiple_entries(void) {
+    setenv("OLLAMA_URL", "http://localhost:11434", 1);
+    setenv("OLLAMA_MODEL", "test-model", 1);
+    reset_http_mock();
+
+    set_http_mock_expectations(
+        "POST",
+        "http://localhost:11434/api/chat",
+        "\"messages\"",
+        "{\"message\": {\"role\": \"assistant\", \"content\": \"multi_output\"}, \"done\": 1, \"done_reason\": \"stop\"}"
+    );
+
+    // Create three seed files
+    char template1[] = "/tmp/queue_test_multi1.XXXXXX";
+    char template2[] = "/tmp/queue_test_multi2.XXXXXX";
+    char template3[] = "/tmp/queue_test_multi3.XXXXXX";
+    
+    int fd1 = mkstemp(template1);
+    int fd2 = mkstemp(template2);
+    int fd3 = mkstemp(template3);
+    assert(fd1 >= 0 && fd2 >= 0 && fd3 >= 0);
+    
+    write(fd1, "seed1", 5);
+    write(fd2, "seed2", 5);
+    write(fd3, "seed3", 5);
+    close(fd1);
+    close(fd2);
+    close(fd3);
+
+    // Create three queue entries with different properties
+    struct queue_entry entry1 = {
+        .id = 1,
+        .depth = 1,
+        .bitmap_size = 64,
+        .favored = true,
+        .has_new_cov = true,
+        .fname = template1,
+    };
+    struct queue_entry entry2 = {
+        .id = 2,
+        .depth = 3,
+        .bitmap_size = 128,
+        .favored = false,
+        .has_new_cov = true,
+        .fname = template2,
+    };
+    struct queue_entry entry3 = {
+        .id = 3,
+        .depth = 7,
+        .bitmap_size = 256,
+        .favored = false,
+        .has_new_cov = false,
+        .fname = template3,
+    };
+
+    struct queue_entry *queue_buf[3] = {&entry1, &entry2, &entry3};
+    afl_state_t afl = {.queued_items = 3, .queue_buf = queue_buf};
+
+    // Verify initial queue state
+    assert(afl.queued_items == 3);
+    for (int i = 0; i < 3; i++) {
+        assert(afl.queue_buf[i] != NULL);
+        assert(afl.queue_buf[i]->id == i + 1);
+    }
+    assert(afl.queue_buf[0]->depth == 1);
+    assert(afl.queue_buf[1]->depth == 3);
+    assert(afl.queue_buf[2]->depth == 7);
+    assert(afl.queue_buf[0]->favored == true);
+    assert(afl.queue_buf[1]->favored == false);
+    assert(afl.queue_buf[2]->has_new_cov == false);
+
+    llm_mutator_t *data = afl_custom_init(&afl, 123);
+    assert(data != NULL);
+
+    uint8_t *out_buf = NULL;
+    size_t out_len = 0;
+    
+    // Call 200 times to trigger API call
+    for (int i = 0; i < 200; i++) {
+        free(out_buf);
+        out_buf = NULL;
+        out_len = afl_custom_fuzz(data, NULL, 0, &out_buf, NULL, 0, 256);
+    }
+    
+    // Verify queue state remains unchanged after fuzzing
+    assert(afl.queued_items == 3);
+    assert(afl.queue_buf[0]->id == 1);
+    assert(afl.queue_buf[1]->id == 2);
+    assert(afl.queue_buf[2]->id == 3);
+    assert(afl.queue_buf[0]->depth == 1);
+    assert(afl.queue_buf[1]->depth == 3);
+    assert(afl.queue_buf[2]->depth == 7);
+    assert(afl.queue_buf[0]->bitmap_size == 64);
+    assert(afl.queue_buf[1]->bitmap_size == 128);
+    assert(afl.queue_buf[2]->bitmap_size == 256);
+
+    // Verify output was generated
+    assert(out_len > 0);
+    assert(out_buf != NULL);
+
+    free(out_buf);
+    afl_custom_deinit(data);
+    unlink(template1);
+    unlink(template2);
+    unlink(template3);
+    remove("llm-mutator-log.txt");
+}
+
+/**
+ * @brief  Test queue consistency before and after fuzzing with varying queue sizes. Verifies that queue structure is not corrupted by fuzzing operations.
+ * 
+ */
+static void test_queue_consistency(void) {
+    setenv("OLLAMA_URL", "http://localhost:11434", 1);
+    setenv("OLLAMA_MODEL", "test-model", 1);
+    reset_http_mock();
+
+    set_http_mock_expectations(
+        "POST",
+        "http://localhost:11434/api/chat",
+        "\"messages\"",
+        "{\"message\": {\"role\": \"assistant\", \"content\": \"consistent\"}, \"done\": 1, \"done_reason\": \"stop\"}"
+    );
+
+    char template[] = "/tmp/queue_test_consistency.XXXXXX";
+    int fd = mkstemp(template);
+    assert(fd >= 0);
+    write(fd, "consistency_test", 16);
+    close(fd);
+
+    struct queue_entry entry = {
+        .id = 999,
+        .depth = 42,
+        .bitmap_size = 512,
+        .favored = true,
+        .has_new_cov = false,
+        .fname = template,
+    };
+    struct queue_entry *queue_buf[1] = {&entry};
+    afl_state_t afl = {.queued_items = 1, .queue_buf = queue_buf};
+
+    // Store initial queue state
+    uint32_t initial_id = afl.queue_buf[0]->id;
+    uint64_t initial_depth = afl.queue_buf[0]->depth;
+    uint32_t initial_bitmap = afl.queue_buf[0]->bitmap_size;
+
+    llm_mutator_t *data = afl_custom_init(&afl, 555);
+    assert(data != NULL);
+
+    uint8_t *out_buf = NULL;
+    
+    // Multiple fuzzing iterations
+    for (int iter = 0; iter < 300; iter++) {
+        free(out_buf);
+        out_buf = NULL;
+        afl_custom_fuzz(data, NULL, 0, &out_buf, NULL, 0, 128);
+        
+        // Verify queue integrity after each fuzz call
+        assert(afl.queue_buf[0]->id == initial_id);
+        assert(afl.queue_buf[0]->depth == initial_depth);
+        assert(afl.queue_buf[0]->bitmap_size == initial_bitmap);
+    }
+
+    free(out_buf);
+    afl_custom_deinit(data);
+    unlink(template);
+    remove("llm-mutator-log.txt");
+}
+
+/**
  * @brief  Test the afl_custom_deinit function to ensure that it properly frees the resources allocated for the mutator data structure. This verifies that memory is freed and files are closed without leaks or errors.
  * 
  * @return int  Returns 0 on success, or a non-zero value if the test fails.
@@ -222,6 +469,9 @@ int main(void) {
     run_test("string_helpers", test_string_helpers);
     run_test("afl_custom_init", test_afl_custom_init);
     run_test("afl_custom_fuzz", test_afl_custom_fuzz);
+    run_test("queue_single_entry", test_queue_single_entry);
+    run_test("queue_multiple_entries", test_queue_multiple_entries);
+    run_test("queue_consistency", test_queue_consistency);
     printf("All mutator tests passed.\n");
     return 0;
 }
