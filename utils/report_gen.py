@@ -10,7 +10,7 @@
 import sys
 from pathlib import Path
 
-from palette import (
+from utils.palette import (
     BG_ROOT, BG_CARD, BG_ROW_A, BG_ROW_B, BG_HEADER, BG_TOTALS,
     BG_CRASH_BOX, BG_META_BOX,
     ACCENT, ACCENT2, ACCENT_WARN, ACCENT_ERR, ACCENT_HANG, ACCENT_PURP,
