@@ -11,9 +11,9 @@ import argparse
 import traceback
 
 # Helper modules 
-import report_gen
-import tmux_ui
-import seed_gen
+from utils import tmux_ui
+from utils import report_gen
+from utils import seed_gen
 
 from datetime import datetime
 from pathlib import Path

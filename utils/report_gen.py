@@ -10,6 +10,15 @@
 import sys
 from pathlib import Path
 
+from palette import (
+    BG_ROOT, BG_CARD, BG_ROW_A, BG_ROW_B, BG_HEADER, BG_TOTALS,
+    BG_CRASH_BOX, BG_META_BOX,
+    ACCENT, ACCENT2, ACCENT_WARN, ACCENT_ERR, ACCENT_HANG, ACCENT_PURP,
+    ACCENT_GREEN,
+    TEXT_MAIN, TEXT_DIM, TEXT_BRIGHT,
+    BORDER, CHART_COLORS,
+)
+
 
 # ============================================================================
 # STATS PARSING
@@ -32,7 +41,7 @@ def _parse_stats_file(path: Path) -> dict:
 def _parse_all_stats(output_dir: str):
     """
     Scan output_dir recursively for fuzzer_stats files.
-    Returns (merged_dict, [per_instance_dicts]) — same shape as the GUI method.
+    Returns (merged_dict, [per_instance_dicts]).
     """
     out = Path(output_dir)
     stats_files = sorted(out.rglob("fuzzer_stats"))
@@ -67,13 +76,13 @@ def _parse_all_stats(output_dir: str):
         "saved_hangs":    sum(ival(i, "saved_hangs")     for i in instances),
         "peak_rss_mb":    sum(ival(i, "peak_rss_mb")     for i in instances),
         "max_depth":      max(ival(i, "max_depth")       for i in instances),
-        "start_time":     instances[0].get("start_time",  ""),
-        "last_update":    instances[0].get("last_update", ""),
-        "afl_banner":     instances[0].get("afl_banner",  ""),
-        "command_line":   instances[0].get("command_line",""),
-        "target_mode":    instances[0].get("target_mode", ""),
-        "stability":      instances[0].get("stability",   ""),
-        "bitmap_cvg":     instances[0].get("bitmap_cvg",  ""),
+        "start_time":     instances[0].get("start_time",   ""),
+        "last_update":    instances[0].get("last_update",  ""),
+        "afl_banner":     instances[0].get("afl_banner",   ""),
+        "command_line":   instances[0].get("command_line", ""),
+        "target_mode":    instances[0].get("target_mode",  ""),
+        "stability":      instances[0].get("stability",    ""),
+        "bitmap_cvg":     instances[0].get("bitmap_cvg",   ""),
     }
 
     try:
@@ -111,32 +120,12 @@ def _format_duration(seconds: int) -> str:
 # ============================================================================
 
 def _render_charts_image(merged: dict, instances: list):
-    """
-    Render the five-panel performance chart to an in-memory PNG buffer.
-    Uses the same dark-blue palette as the GUI.
-    """
+    """Render the five-panel performance chart to an in-memory PNG buffer."""
     import io
     import numpy as np
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
-
-    # ── palette (mirrors vibefuzzer_gui.py) ───────────────────────────────
-    BG_ROOT  = "#06090f"
-    BG_CARD  = "#0f1829"
-    BORDER   = "#1e3a5f"
-    ACCENT2  = "#60a5fa"
-    ACCENT   = "#3b82f6"
-    A_PURP   = "#a78bfa"
-    A_WARN   = "#f59e0b"
-    A_GREEN  = "#22d3ee"
-    A_HANG   = "#f97316"
-    A_ERR    = "#ef4444"
-    TEXT_BR  = "#e2e8f0"
-    TEXT_DIM = "#64748b"
-    TEXT_SUB = "#94a3b8"
-
-    CHART_COLORS = [ACCENT2, ACCENT, A_PURP, A_WARN, A_GREEN, A_HANG]
 
     def ival(d, k):
         try: return int(d.get(k, 0))
@@ -158,6 +147,8 @@ def _render_charts_image(merged: dict, instances: list):
     x          = np.arange(n)
     bar_colors = [CHART_COLORS[i % len(CHART_COLORS)] for i in range(n)]
 
+    TEXT_SUBTLE = "#94a3b8"
+
     fig = plt.figure(figsize=(16, 10), facecolor=BG_ROOT)
     gs  = fig.add_gridspec(3, 2, height_ratios=[1.2, 1, 1], hspace=0.55, wspace=0.3)
 
@@ -169,8 +160,8 @@ def _render_charts_image(merged: dict, instances: list):
 
     def style_ax(ax, title):
         ax.set_facecolor(BG_CARD)
-        ax.set_title(title, color=TEXT_BR,  fontsize=12, pad=10, weight="bold")
-        ax.tick_params(colors=TEXT_SUB, labelsize=9)
+        ax.set_title(title, color=TEXT_BRIGHT, fontsize=12, pad=10, weight="bold")
+        ax.tick_params(colors=TEXT_SUBTLE, labelsize=9)
         for spine in ax.spines.values():
             spine.set_edgecolor(BORDER)
         ax.grid(axis="x", linestyle="--", alpha=0.15, color=BORDER)
@@ -182,7 +173,7 @@ def _render_charts_image(merged: dict, instances: list):
         ax_paths.text(
             bar.get_width() + max_val * 0.01,
             bar.get_y() + bar.get_height() / 2,
-            f"{val:,}", va="center", ha="left", color=TEXT_SUB, fontsize=10,
+            f"{val:,}", va="center", ha="left", color=TEXT_SUBTLE, fontsize=10,
         )
     ax_paths.set_xlabel("Total Paths Discovered", color=TEXT_DIM, fontsize=10)
 
@@ -193,10 +184,10 @@ def _render_charts_image(merged: dict, instances: list):
 
     style_ax(ax_crashes, "Stability (Crashes & Hangs)")
     w = 0.4
-    ax_crashes.bar(x - w/2, crash_vals, w, label="Crashes", color=A_ERR,  edgecolor=BORDER)
-    ax_crashes.bar(x + w/2, hang_vals,  w, label="Hangs",   color=A_HANG, edgecolor=BORDER)
+    ax_crashes.bar(x - w/2, crash_vals, w, label="Crashes", color=ACCENT_ERR,  edgecolor=BORDER)
+    ax_crashes.bar(x + w/2, hang_vals,  w, label="Hangs",   color=ACCENT_HANG, edgecolor=BORDER)
     ax_crashes.set_xticks(x); ax_crashes.set_xticklabels(labels, rotation=30, ha="right")
-    ax_crashes.legend(frameon=False, fontsize=9, labelcolor=TEXT_SUB)
+    ax_crashes.legend(frameon=False, fontsize=9, labelcolor=TEXT_SUBTLE)
     ax_crashes.set_ylabel("Count", color=TEXT_DIM, fontsize=10)
 
     style_ax(ax_corpus, "Corpus Growth")
@@ -226,7 +217,6 @@ def generate_pdf_report(output_dir: str, pdf_path: str) -> None:
     Read fuzzer_stats from output_dir and write a PDF report to pdf_path.
     Identical output to the GUI's Export PDF button.
     """
-    import io
     from reportlab.lib.pagesizes import letter
     from reportlab.lib.units import inch
     from reportlab.lib import colors
@@ -244,27 +234,6 @@ def generate_pdf_report(output_dir: str, pdf_path: str) -> None:
         sys.exit(1)
 
     print(f"[*] Found {len(instances)} instance(s). Building report...")
-
-    # ── palette (mirrors vibefuzzer_gui.py) ───────────────────────────────
-    BG_ROOT      = "#06090f"
-    BG_CARD      = "#0f1829"
-    BG_ROW_A     = "#111d35"
-    BG_ROW_B     = "#0e1730"
-    BG_HEADER    = "#0d1526"
-    BG_TOTALS    = "#13203d"
-    BG_CRASH_BOX = "#110d1a"
-    BG_META_BOX  = "#0b1120"
-    ACCENT2      = "#60a5fa"
-    ACCENT       = "#3b82f6"
-    A_WARN       = "#f59e0b"
-    A_ERR        = "#ef4444"
-    A_HANG       = "#f97316"
-    A_PURP       = "#a78bfa"
-    A_GREEN      = "#22d3ee"
-    TEXT_BRIGHT  = "#e2e8f0"
-    TEXT_DIM     = "#64748b"
-    TEXT_MAIN    = "#cbd5e1"
-    BORDER       = "#1e3a5f"
 
     def C(h): return colors.HexColor(h)
 
@@ -312,9 +281,10 @@ def generate_pdf_report(output_dir: str, pdf_path: str) -> None:
     story = []
 
     # ── Title ─────────────────────────────────────────────────────────────
-    story.append(Paragraph("AFL++ Fuzzing Report",
-                            sty("title", size=20, color=C(ACCENT2), bold=True,
-                                space_before=2, space_after=2)))
+    story.append(Paragraph(
+        "AFL++ Fuzzing Report",
+        sty("title", size=20, color=C(ACCENT2), bold=True, space_before=2, space_after=2),
+    ))
     story.append(Paragraph(
         f"{len(instances)} instance(s) combined  ·  Output: {output_dir}",
         sty("subtitle", size=10, color=C(TEXT_DIM), space_after=8),
@@ -322,21 +292,20 @@ def generate_pdf_report(output_dir: str, pdf_path: str) -> None:
     story.append(HRFlowable(width="100%", thickness=1, color=C(ACCENT2), spaceAfter=10))
 
     # ── Summary cards ─────────────────────────────────────────────────────
-    story.append(Paragraph("SUMMARY",
-                            sty("section", size=12, color=C(ACCENT2), bold=True,
-                                space_before=14, space_after=4)))
-
+    story.append(Paragraph(
+        "SUMMARY",
+        sty("section", size=12, color=C(ACCENT2), bold=True, space_before=14, space_after=4),
+    ))
     cards = [
         ("EXECUTIONS",     f"{merged['execs_done']:,}",        C(ACCENT2)),
         ("EXEC / SEC",     f"{merged['execs_per_sec']:,.1f}",  C(ACCENT)),
-        ("PATHS FOUND",    f"{merged['paths_total']:,}",       C(A_WARN)),
-        ("UNIQUE CRASHES", f"{merged['unique_crashes']:,}",    C(A_ERR)  if merged['unique_crashes'] > 0 else C(TEXT_DIM)),
-        ("UNIQUE HANGS",   f"{merged['unique_hangs']:,}",      C(A_HANG) if merged['unique_hangs']   > 0 else C(TEXT_DIM)),
-        ("CYCLES DONE",    f"{merged['cycles_done']:,}",       C(A_PURP)),
-        ("RUN TIME",       run_time,                           C(A_GREEN)),
+        ("PATHS FOUND",    f"{merged['paths_total']:,}",       C(ACCENT_WARN)),
+        ("UNIQUE CRASHES", f"{merged['unique_crashes']:,}",    C(ACCENT_ERR)  if merged['unique_crashes'] > 0 else C(TEXT_DIM)),
+        ("UNIQUE HANGS",   f"{merged['unique_hangs']:,}",      C(ACCENT_HANG) if merged['unique_hangs']   > 0 else C(TEXT_DIM)),
+        ("CYCLES DONE",    f"{merged['cycles_done']:,}",       C(ACCENT_PURP)),
+        ("RUN TIME",       run_time,                           C(ACCENT_GREEN)),
         ("CORPUS SIZE",    f"{merged['corpus_count']:,}",      C(TEXT_BRIGHT)),
     ]
-
     CARD_W = (W - MARGIN * 2) / 4
 
     def card_cell(label, value, color):
@@ -346,10 +315,10 @@ def generate_pdf_report(output_dir: str, pdf_path: str) -> None:
             colWidths=[CARD_W - 8],
         )
         inner.setStyle(TableStyle([
-            ("ALIGN",        (0,0), (-1,-1), "CENTER"),
-            ("VALIGN",       (0,0), (-1,-1), "MIDDLE"),
-            ("TOPPADDING",   (0,0), (-1,-1), 6),
-            ("BOTTOMPADDING",(0,0), (-1,-1), 6),
+            ("ALIGN",         (0,0), (-1,-1), "CENTER"),
+            ("VALIGN",        (0,0), (-1,-1), "MIDDLE"),
+            ("TOPPADDING",    (0,0), (-1,-1), 6),
+            ("BOTTOMPADDING", (0,0), (-1,-1), 6),
         ]))
         return inner
 
@@ -368,9 +337,10 @@ def generate_pdf_report(output_dir: str, pdf_path: str) -> None:
         story.append(Spacer(1, 4))
 
     # ── Charts ────────────────────────────────────────────────────────────
-    story.append(Paragraph("COVERAGE &amp; PERFORMANCE",
-                            sty("section", size=12, color=C(ACCENT2), bold=True,
-                                space_before=14, space_after=4)))
+    story.append(Paragraph(
+        "COVERAGE &amp; PERFORMANCE",
+        sty("section", size=12, color=C(ACCENT2), bold=True, space_before=14, space_after=4),
+    ))
     chart_buf = _render_charts_image(merged, instances)
     if chart_buf:
         img = Image(chart_buf, width=W - MARGIN * 2, height=(W - MARGIN * 2) * 0.6)
@@ -378,10 +348,10 @@ def generate_pdf_report(output_dir: str, pdf_path: str) -> None:
         story.append(Spacer(1, 6))
 
     # ── Per-instance table ────────────────────────────────────────────────
-    story.append(Paragraph("PER-INSTANCE BREAKDOWN",
-                            sty("section", size=12, color=C(ACCENT2), bold=True,
-                                space_before=14, space_after=4)))
-
+    story.append(Paragraph(
+        "PER-INSTANCE BREAKDOWN",
+        sty("section", size=12, color=C(ACCENT2), bold=True, space_before=14, space_after=4),
+    ))
     headers = ["Instance", "Execs", "Exec/s", "Paths", "Crashes",
                "Hangs", "Cycles", "Corpus", "Depth", "Stability", "Coverage"]
     col_w   = [1.1*inch, 0.85*inch, 0.65*inch, 0.65*inch, 0.65*inch,
@@ -402,51 +372,49 @@ def generate_pdf_report(output_dir: str, pdf_path: str) -> None:
             cell_p(f"{ival(inst,'execs_done'):,}"),
             cell_p(f"{fval(inst,'execs_per_sec'):,.1f}"),
             cell_p(f"{ival(inst,'paths_total'):,}"),
-            cell_p(f"{ival(inst,'unique_crashes'):,}", C(A_ERR)  if ival(inst,'unique_crashes') > 0 else None),
-            cell_p(f"{ival(inst,'unique_hangs'):,}",  C(A_HANG) if ival(inst,'unique_hangs')   > 0 else None),
+            cell_p(f"{ival(inst,'unique_crashes'):,}", C(ACCENT_ERR)  if ival(inst,'unique_crashes') > 0 else None),
+            cell_p(f"{ival(inst,'unique_hangs'):,}",  C(ACCENT_HANG) if ival(inst,'unique_hangs')   > 0 else None),
             cell_p(f"{ival(inst,'cycles_done'):,}"),
             cell_p(f"{ival(inst,'corpus_count'):,}"),
             cell_p(f"{ival(inst,'max_depth'):,}"),
-            cell_p(inst.get("stability", "n/a")),
+            cell_p(inst.get("stability",  "n/a")),
             cell_p(inst.get("bitmap_cvg", "n/a")),
         ])
-
     table_data.append([
-        cell_p("COMBINED",                            C(A_WARN)),
-        cell_p(f"{merged['execs_done']:,}",           C(A_WARN)),
-        cell_p(f"{merged['execs_per_sec']:,.1f}",     C(A_WARN)),
-        cell_p(f"{merged['paths_total']:,}",          C(A_WARN)),
-        cell_p(f"{merged['unique_crashes']:,}",       C(A_WARN)),
-        cell_p(f"{merged['unique_hangs']:,}",         C(A_WARN)),
-        cell_p(f"{merged['cycles_done']:,}",          C(A_WARN)),
-        cell_p(f"{merged['corpus_count']:,}",         C(A_WARN)),
-        cell_p(f"{merged['max_depth']:,}",            C(A_WARN)),
-        cell_p("—",                                   C(A_WARN)),
-        cell_p("—",                                   C(A_WARN)),
+        cell_p("COMBINED",                         C(ACCENT_WARN)),
+        cell_p(f"{merged['execs_done']:,}",        C(ACCENT_WARN)),
+        cell_p(f"{merged['execs_per_sec']:,.1f}",  C(ACCENT_WARN)),
+        cell_p(f"{merged['paths_total']:,}",       C(ACCENT_WARN)),
+        cell_p(f"{merged['unique_crashes']:,}",    C(ACCENT_WARN)),
+        cell_p(f"{merged['unique_hangs']:,}",      C(ACCENT_WARN)),
+        cell_p(f"{merged['cycles_done']:,}",       C(ACCENT_WARN)),
+        cell_p(f"{merged['corpus_count']:,}",      C(ACCENT_WARN)),
+        cell_p(f"{merged['max_depth']:,}",         C(ACCENT_WARN)),
+        cell_p("—",                                C(ACCENT_WARN)),
+        cell_p("—",                                C(ACCENT_WARN)),
     ])
 
     n_inst = len(instances)
     row_styles = [
-        ("BACKGROUND",    (0, 0),         (-1, 0),         C(BG_HEADER)),
-        ("BACKGROUND",    (0, n_inst+1),  (-1, n_inst+1),  C(BG_TOTALS)),
-        ("GRID",          (0, 0),         (-1, -1),         0.4, C(BORDER)),
-        ("TOPPADDING",    (0, 0),         (-1, -1),         4),
-        ("BOTTOMPADDING", (0, 0),         (-1, -1),         4),
-        ("VALIGN",        (0, 0),         (-1, -1),         "MIDDLE"),
+        ("BACKGROUND",    (0, 0),        (-1, 0),        C(BG_HEADER)),
+        ("BACKGROUND",    (0, n_inst+1), (-1, n_inst+1), C(BG_TOTALS)),
+        ("GRID",          (0, 0),        (-1, -1),        0.4, C(BORDER)),
+        ("TOPPADDING",    (0, 0),        (-1, -1),        4),
+        ("BOTTOMPADDING", (0, 0),        (-1, -1),        4),
+        ("VALIGN",        (0, 0),        (-1, -1),        "MIDDLE"),
     ]
     for i in range(1, n_inst + 1):
         bg = C(BG_ROW_A) if i % 2 == 1 else C(BG_ROW_B)
         row_styles.append(("BACKGROUND", (0, i), (-1, i), bg))
-
     tbl = Table(table_data, colWidths=col_w, repeatRows=1)
     tbl.setStyle(TableStyle(row_styles))
     story.append(tbl)
 
-    # ── Crash / hang file listing ─────────────────────────────────────────
+    # ── Crash / hang listing ──────────────────────────────────────────────
     if crash_files or hang_files:
         story.append(Paragraph(
             "CRASH &amp; HANG FILES",
-            sty("cs", size=12, color=C(A_ERR), bold=True, space_before=14, space_after=4),
+            sty("cs", size=12, color=C(ACCENT_ERR), bold=True, space_before=14, space_after=4),
         ))
         crash_lines = []
         if crash_files:
@@ -468,10 +436,11 @@ def generate_pdf_report(output_dir: str, pdf_path: str) -> None:
         ]))
         story.append(crash_tbl)
 
-    # ── Run metadata ──────────────────────────────────────────────────────
-    story.append(Paragraph("RUN METADATA",
-                            sty("section", size=12, color=C(ACCENT2), bold=True,
-                                space_before=14, space_after=4)))
+    # ── Metadata table ────────────────────────────────────────────────────
+    story.append(Paragraph(
+        "RUN METADATA",
+        sty("section", size=12, color=C(ACCENT2), bold=True, space_before=14, space_after=4),
+    ))
     meta_rows = [
         ("Target",        merged.get("afl_banner",   "n/a")),
         ("Command",       merged.get("command_line", "n/a")),
@@ -483,7 +452,7 @@ def generate_pdf_report(output_dir: str, pdf_path: str) -> None:
         ("Output dir",    str(output_dir)),
     ]
     meta_tbl_data = [
-        [Paragraph(k, sty("mk", size=9, color=C(ACCENT),     bold=True)),
+        [Paragraph(k, sty("mk", size=9, color=C(ACCENT),    bold=True)),
          Paragraph(v, sty("mv", size=9, color=C(TEXT_MAIN)))]
         for k, v in meta_rows
     ]
