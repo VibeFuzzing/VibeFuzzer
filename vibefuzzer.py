@@ -1011,6 +1011,29 @@ def main() -> int:
 
         if args.debug_ui:
             tmux_ui.launch_in_tmux("vibefuzzer", p_cmd, p_env, s_cmd, s_env)
+            
+            # Give AFL++ a moment to start (or fail)
+            print("[*] Waiting 3s to verify AFL++ instances started...")
+            time.sleep(3)
+
+            # Check if the tmux session is still alive
+            result = subprocess.run(
+                ["tmux", "has-session", "-t", "vibefuzzer"],
+                capture_output=True
+            )
+            if result.returncode != 0:
+                print("[!] tmux session died immediately — AFL++ likely failed to start. Check your binary, input dir, and AFL++ installation.")
+                return 1
+
+            # Check if any panes exited with an error
+            pane_check = subprocess.run(
+                ["tmux", "list-panes", "-t", "vibefuzzer", "-F", "#{pane_dead}"],
+                capture_output=True, text=True
+            )
+            if "1" in pane_check.stdout:
+                print("[!] One or more AFL++ panes exited — check tmux for errors.")
+                return 1
+
             print("[*] Fuzzers are alive in tmux. Wrapper exiting.")
             return 0
         
