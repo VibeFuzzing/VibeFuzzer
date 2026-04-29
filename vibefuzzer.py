@@ -984,7 +984,7 @@ def main() -> int:
             print("\n=== STAGE: Seed Generation ===")
             seed_gen.generate_llm_seeds(
                 input_dir=args.input,
-                binary_name=args.binary,
+                binary_name=binary_path,
                 protocol=args.protocol,
                 num_seeds=args.num_seeds,
             )
