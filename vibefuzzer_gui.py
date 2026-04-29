@@ -15,9 +15,9 @@ from tkinter import filedialog, messagebox
 
 import customtkinter as ctk
 
-from palette import BG_ROOT, BG_FRAME, BG_CARD, BG_HEADER, ACCENT2, VALID_PROTOCOLS, HELP_SECTIONS
-from gui_widgets import WidgetMixin
-from gui_results import ResultsMixin
+from utils.palette import BG_ROOT, BG_FRAME, BG_CARD, BG_HEADER, ACCENT2, VALID_PROTOCOLS, HELP_SECTIONS
+from utils.gui_widgets import WidgetMixin
+from utils.gui_results import ResultsMixin
 
 ctk.set_appearance_mode("dark")
 

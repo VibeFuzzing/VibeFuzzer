@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
-from palette import (
+from utils.palette import (
     BG_ROOT, BG_CARD, BG_HEADER, BG_ROW_A, BG_ROW_B, BG_TOTALS,
     BG_CRASH_BOX, BG_META_BOX,
     ACCENT, ACCENT2, ACCENT_WARN, ACCENT_ERR, ACCENT_HANG, ACCENT_PURP,
@@ -23,7 +23,7 @@ from palette import (
     BORDER, CHART_COLORS,
 )
 # Reuse the headless stats helpers from report_gen — no duplication.
-from report_gen import (
+from utils.report_gen import (
     _parse_all_stats,
     _count_crash_files,
     _format_duration,

@@ -7,7 +7,7 @@
 import customtkinter as ctk
 from tkinter import filedialog
 
-from palette import (
+from utils.palette import (
     BG_CARD, BG_HEADER, BG_FRAME,
     ACCENT, ACCENT_HOVER, ACCENT2,
     TEXT_MAIN, TEXT_DIM, TEXT_BRIGHT, TEXT_SUBTLE,
