@@ -299,7 +299,8 @@ def build_aflpp_cmd(
 
     # Add AFL++ args BEFORE the -- separator
     if extra_afl_args:
-        aflpp_cmd += extra_afl_args
+        for arg in extra_afl_args:
+            aflpp_cmd += arg.split()
 
     # The target binary and its arguments go after the -- separator. 
     # For network services, we typically just specify the binary and let libdesock handle the I/O redirection.
@@ -881,8 +882,8 @@ def parse_args() -> argparse.Namespace:
                              help="Args for the setup phase (./configure, cmake -B, meson setup)")
     build_group.add_argument("--make-args",      default=None,
                              help="Args for the compile phase (make, cmake --build, ninja)")
-    build_group.add_argument("--target-args",    nargs=argparse.REMAINDER, default=[],
-                             help="Args passed to the target binary after --")
+    fuzz_group.add_argument("--afl-args", nargs='*', default=[],
+                            help="Extra flags for afl-fuzz (e.g. --afl-args=\"-V 86400\" \"-p fast\")")
 
     # ── AFL++ Fuzzing Options ─────────────────────────────────────────────
     fuzz_group = parser.add_argument_group("Fuzzing Configuration")
@@ -890,7 +891,7 @@ def parse_args() -> argparse.Namespace:
                             help="Seed corpus directory (default: ./fuzzing_inputs)")
     fuzz_group.add_argument("--output",   default="./fuzzing_output",
                             help="Findings output directory (default: ./fuzzing_output)")
-    fuzz_group.add_argument("--afl-args", nargs='*', default=[],
+    fuzz_group.add_argument("--afl-args", nargs=argparse.REMAINDER, default=[],
                             help="Extra flags for afl-fuzz itself (e.g. -p fast)")
     fuzz_group.add_argument("--debug-ui", action="store_true",
                             help="Launch both instances side-by-side in tmux")
