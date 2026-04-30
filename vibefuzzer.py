@@ -338,91 +338,74 @@ def parse_args() -> argparse.Namespace:
         description="VibeFuzzer ---------- an AFL++ + libdesock + C based LLM mutator fuzzing wrapper",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-        Examples:
-            # Standard run (mutator built by setup.sh)
-            python3 vibefuzzer.py ~/targets/nginx objs/nginx \\
-                --protocol HTTP --no-llm-seeds \\
-                --input ~/targets/nginx/corpus \\
-                --output ~/targets/nginx/findings \\
+            Examples:
+            # Standard fuzzing run
+            python3 vibefuzzer.py ~/targets/nginx \\
+                --binary objs/nginx --protocol HTTP --no-llm-seeds \\
+                --input ~/targets/nginx/corpus --output ~/targets/nginx/findings \\
+                --afl-args="-V 86400" \\
                 --target-args -c ~/targets/nginx/fuzz.conf
-
-            # Generate a PDF report from a completed fuzzing run
-            python3 vibefuzzer.py --report --data ~/targets/nginx/findings
-        
-            # Debug UI — both instances side-by-side in tmux
-            python3 vibefuzzer.py ~/targets/nginx objs/nginx \\
-                --protocol HTTP --no-llm-seeds \\
-                --input ~/targets/nginx/corpus \\
-                --output ~/targets/nginx/findings \\
-                --debug-ui \\
+            
+            # Fuzzing run that auto-generates a PDF report on completion
+            python3 vibefuzzer.py ~/targets/nginx \\
+                --binary objs/nginx --protocol HTTP --no-llm-seeds \\
+                --input ~/targets/nginx/corpus --output ~/targets/nginx/findings \\
+                --auto-report --afl-args="-V 86400" \\
                 --target-args -c ~/targets/nginx/fuzz.conf
-                """,
-    )
+            
+            # Generate a PDF from a completed run (standalone — no fuzzing flags)
+            python3 vibefuzzer.py --report ~/targets/nginx/findings
+            
+            # Save report to a specific directory
+            python3 vibefuzzer.py --report ~/targets/nginx/findings --report-out ~/reports
+    """,)
 
-    # ── Report-only mode ──────────────────────────────────────────────────
-    report_group = parser.add_argument_group(
-        "Report Generation",
-        "Pass --report --data <dir> to generate a PDF from a completed fuzzing "
-        "output directory without starting a fuzzing session.",
-    )
-    report_group.add_argument(
-        "--report",
-        action="store_true",
-        help="Generate a PDF report from --data and exit (no fuzzing).",
-    )
-    report_group.add_argument(
-        "--data",
-        default=None,
-        metavar="DIR",
-        help="AFL++ output directory to read fuzzer_stats from (required with --report).",
-    )
-    report_group.add_argument(
-        "--report-out",
-        default=None,
-        metavar="DIR",
-        help="Directory to write the PDF report to (default: current working directory).",
-    )
-
-    # ── Target / positional ───────────────────────────────────────────────
+    # Report-only mode 
+    report_group = parser.add_argument_group("Report Generation")
+    report_group.add_argument(      "--report", metavar="DIR",
+                                    help="Generate a PDF from DIR (AFL++ output directory) and exit. Cannot be used with fuzzing flags.")
+    report_group.add_argument(      "--report-out", default=None, metavar="DIR",
+                                    help="Where to write the PDF (default: current working directory). Valid with --report or --auto-report.")
+    report_group.add_argument(      "--auto-report", action="store_true",
+                                    help="Automatically generate a PDF report when fuzzing completes")
+    
+    # Target / positional 
     target_group = parser.add_argument_group("Target Configuration")
-    target_group.add_argument(
-        "target_dir", nargs="?", default=None,
-        help="Target server source directory (not required with --report)",
-    )
-    target_group.add_argument("--binary",   default=None,
-                              help="Expected binary path relative to target dir. Auto-detected if omitted.")
-    target_group.add_argument("--protocol", default=None, choices=valid_protocols,
-                              help="Protocol the target speaks")
+    target_group.add_argument(      "target_dir", nargs="?", default=None,
+                                    help="Target server source directory (not used with --report)")
+    target_group.add_argument(      "--binary", default=None,
+                                    help="Expected binary path relative to target dir. Auto-detected if omitted.")
+    target_group.add_argument(      "--protocol", default=None, choices=valid_protocols,
+                                    help="Protocol the target speaks")
 
-    # ── Build Options ─────────────────────────────────────────────────────
+    # Build Options 
     build_group = parser.add_argument_group("Build Options")
-    build_group.add_argument("--custom-build",   default=None,
-                             help="Custom build command string (overrides auto-detect)")
-    build_group.add_argument("--configure-args", default=None,
-                             help="Args for the setup phase (./configure, cmake -B, meson setup)")
-    build_group.add_argument("--make-args",      default=None,
-                             help="Args for the compile phase (make, cmake --build, ninja)")
-    build_group.add_argument("--target-args", nargs=argparse.REMAINDER, default=[],
-                            help="Args passed to the target binary after --")
+    build_group.add_argument(       "--custom-build", default=None,
+                                    help="Custom build command string (overrides auto-detect)")
+    build_group.add_argument(       "--configure-args", default=None,
+                                    help="Args for the setup phase (./configure, cmake -B, meson setup)")
+    build_group.add_argument(       "--make-args", default=None,
+                                    help="Args for the compile phase (make, cmake --build, ninja)")
+    build_group.add_argument(       "--target-args", nargs=argparse.REMAINDER, default=[],
+                                    help="Args passed to the target binary after --")
 
-
-    # ── AFL++ Fuzzing Options ─────────────────────────────────────────────
+    # AFL++ Fuzzing Options
     fuzz_group = parser.add_argument_group("Fuzzing Configuration")
-    fuzz_group.add_argument("--input",    default="./fuzzing_inputs",
-                            help="Seed corpus directory (default: ./fuzzing_inputs)")
-    fuzz_group.add_argument("--output",   default="./fuzzing_output",
-                            help="Findings output directory (default: ./fuzzing_output)")
-    fuzz_group.add_argument("--afl-args", nargs='*', default=[],
-                            help="Extra flags for afl-fuzz (e.g. --afl-args=\"-V 86400\" \"-p fast\")")
-    fuzz_group.add_argument("--debug-ui", action="store_true",
-                            help="Launch both instances side-by-side in tmux")
+    fuzz_group.add_argument(        "--input", default="./fuzzing_inputs",
+                                    help="Seed corpus directory (default: ./fuzzing_inputs)")
+    fuzz_group.add_argument(        "--output", default="./fuzzing_output",
+                                    help="Findings output directory (default: ./fuzzing_output)")
+    fuzz_group.add_argument(        "--afl-args", nargs='*', default=[],
+                                    help="Extra flags for afl-fuzz (e.g. --afl-args=\"-V 86400\" \"-p fast\")")
+    fuzz_group.add_argument(        "--debug-ui", action="store_true",
+                                    help="Launch both instances side-by-side in tmux")
 
-    # ── LLM Mutator Options ───────────────────────────────────────────────
+    # LLM Mutator Options 
     llm_group = parser.add_argument_group("LLM Mutator Configuration")
-    llm_group.add_argument("--no-llm-seeds", action="store_true",
-                           help="Skip LLM seed generation — use existing seeds or fallback")
-    llm_group.add_argument("--num-seeds", type=int, default=10,
-                           help="Number of LLM-generated seeds (default: 10)")
+    llm_group.add_argument(         "--no-llm-seeds", action="store_true",
+                                    help="Skip LLM seed generation — use existing seeds or fallback")
+    llm_group.add_argument(         "--num-seeds", type=int, default=10,
+                                    help="Number of LLM-generated seeds (default: 10)")
 
     return parser.parse_args()
 
@@ -436,26 +419,28 @@ def main() -> int:
     args = parse_args()
 
     # Report-only mode
-    if args.report:
-        if not args.data:
-            print("[!] --data <directory> is required with --report.")
-            print("    Example: python3 vibefuzzer.py --report --data ./fuzzing_output")
+    if args.report is not None:
+        # Block fuzzing flags from being passed alongside --report
+        illegal = []
+        if args.target_dir:                                  illegal.append("target_dir")
+        if args.binary:                                      illegal.append("--binary")
+        if args.protocol:                                    illegal.append("--protocol")
+        if args.custom_build:                                illegal.append("--custom-build")
+        if args.configure_args:                              illegal.append("--configure-args")
+        if args.make_args:                                   illegal.append("--make-args")
+        if args.target_args:                                 illegal.append("--target-args")
+        if args.afl_args:                                    illegal.append("--afl-args")
+        if args.debug_ui:                                    illegal.append("--debug-ui")
+        if args.no_llm_seeds:                                illegal.append("--no-llm-seeds")
+        if args.auto_report:                                 illegal.append("--auto-report")
+ 
+        if illegal:
+            print("[!] --report cannot be combined with fuzzing flags.")
+            print(f"    Illegal flags: {', '.join(illegal)}")
+            print("    Usage: python3 vibefuzzer.py --report <output_dir>")
             return 1
-        data_dir = args.data
-        if not Path(data_dir).is_dir():
-            print(f"[!] Data directory not found: {data_dir}")
-            return 1
-        timestamp  = datetime.now().strftime("%Y%m%d_%H%M%S")
-        report_dir = Path(args.report_out).resolve() if args.report_out else Path.cwd()
-        report_dir.mkdir(parents=True, exist_ok=True)
-        pdf_path   = str(report_dir / f"vibefuzzer_report_{timestamp}.pdf")
-        try:
-            report_gen.generate_pdf_report(data_dir, pdf_path)
-        except Exception as e:
-            print(f"[!] Failed to generate report: {e}")
-            traceback.print_exc()
-            return 1
-        return 0
+ 
+        return _run_report(args.report, args.report_out)
 
     # Normal fuzzing mode 
     if not args.target_dir:
@@ -573,10 +558,6 @@ def main() -> int:
             secondary_handle = subprocess.Popen( s_cmd, env=s_env, stdout=out_dest, stderr=out_dest, text=True, start_new_session=True)
             print(f"[*] Secondary PID: {secondary_handle.pid}")
 
-            # TODO: After fuzzing completes, we can analyze results, generate reports, etc.
-            # TODO: Add While loop for user intervention 
-            # TODO: Implement GUI 
-
             # Wait and Cleanup ========================================== 
             print("\n[*] Fuzzing instances running. Press Ctrl+C to stop.")
             try:
@@ -609,6 +590,11 @@ def main() -> int:
                         shutil.rmtree(tmp_path, ignore_errors=True)
 
                 print("[*] All fuzzing instances cleanly terminated.")
+
+            # 5. Auto-report ===================================================
+            if args.auto_report:
+                print("\n=== STAGE: Generating Report ===")
+                _run_report(args.output, args.report_out)
 
     except Exception as e:
         print(f"\n[!] Error: {e}")
