@@ -6,6 +6,7 @@ import time
 import shutil
 import sys
 import os
+import signal
 import subprocess
 import argparse
 import traceback
@@ -584,16 +585,23 @@ def main() -> int:
             except KeyboardInterrupt:
                 print("\n[*] Fuzzing interrupted by user. Shutting down instances...")
             finally:
-                # Kill the processes
-                if primary_handle.poll() is None:
-                    primary_handle.terminate()
-                if secondary_handle and secondary_handle.poll() is None:
-                    secondary_handle.terminate()
-                
-                if primary_handle: primary_handle.wait()
-                if secondary_handle: secondary_handle.wait()
-                
-                # Wipe the temporary RAM disk folders
+                print("\n[*] Shutting down fuzzing instances...")
+                for handle, name in [(primary_handle, "primary"), (secondary_handle, "secondary")]:
+                    if handle and handle.poll() is None:
+                        try:
+                            os.killpg(os.getpgid(handle.pid), signal.SIGTERM)
+                            print(f"[*] Sent SIGTERM to {name} (PID {handle.pid})")
+                        except ProcessLookupError:
+                            pass
+
+                for handle in [primary_handle, secondary_handle]:
+                    if handle:
+                        try:
+                            handle.wait(timeout=5)
+                        except subprocess.TimeoutExpired:
+                            os.killpg(os.getpgid(handle.pid), signal.SIGKILL)
+                            handle.wait()
+
                 print("[*] Cleaning up temporary RAM disk directories...")
                 for instance in ["primary", "secondary"]:
                     tmp_path = f"/tmp/afl_tmp_{instance}"
