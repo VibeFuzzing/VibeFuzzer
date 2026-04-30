@@ -16,7 +16,6 @@ from utils import tmux_ui
 from utils import report_gen
 from utils import seed_gen
 
-from datetime import datetime
 from pathlib import Path
 from typing import Optional, Union, Tuple
 
@@ -239,9 +238,8 @@ def _auto_detect_binary(source_path: Path) -> Path:
         f"Multiple instrumented binaries found — specify one with --binary:\n{listing}"
     )
 
-
 # ============================================================================
-# AFL++ 
+# AFL++ COMMAND BUILDER
 # ============================================================================
 def build_aflpp_cmd(
     binary: str,
@@ -255,8 +253,8 @@ def build_aflpp_cmd(
     debug_ui: bool = False, 
 ) -> Tuple[list, dict]:
     """
-    Launches an afl-fuzz instance. 
-    Can act as the primary node or a secondary sync node depending on instance_name.
+    Builds an afl-fuzz command and environment.
+    Can be used to build the primary node or a secondary sync node depending on instance_name.
     """
     Path(output_dir).mkdir(parents=True, exist_ok=True)
     
@@ -277,12 +275,12 @@ def build_aflpp_cmd(
         run_env["AFL_CUSTOM_MUTATOR_LIBRARY"] = str(mutator_resolved)
         
         # 2. Force this node to ONLY use the custom LLM mutator, and skip trimming
-        run_env["AFL_CUSTOM_MUTATOR_ONLY"]    = "1"
-        run_env["AFL_DISABLE_TRIM"]           = "1"
+        run_env["AFL_CUSTOM_MUTATOR_ONLY"]      = "1"
+        run_env["AFL_DISABLE_TRIM"]             = "1"
         
         # 3. Pass API configurations down to the C code (ollama.c)
-        run_env["OLLAMA_URL"]   = OLLAMA_BASE_URL
-        run_env["OLLAMA_MODEL"] = "afl-mutator"
+        run_env["OLLAMA_URL"]                   = OLLAMA_BASE_URL
+        run_env["OLLAMA_MODEL"]                 = "afl-mutator"
 
         # 4. Disable AFL++'s built-in UI 
         # Else we want to see it when doing tmux debugging
@@ -302,6 +300,10 @@ def build_aflpp_cmd(
     aflpp_cmd += ["-o", output_dir, "-m", "none", "-t", "5000+"]
 
     # Add AFL++ args BEFORE the -- separator
+    # TODO: make arg parsing more robust — 
+    # currently we expect users to pass extra AFL++ args as a quoted string, which we then split on spaces. 
+    # This works for simple flags but will break if users try to pass complex args with their own spaces (e.g. -p "fast queue"). 
+    # A more robust solution would be to accept extra AFL++ args as a list directly from the command line, but that requires some careful argparse configuration.
     if extra_afl_args:
         for arg in extra_afl_args:
             aflpp_cmd += arg.split()
@@ -418,7 +420,7 @@ def main() -> int:
     """
     args = parse_args()
 
-    # Report-only mode
+    # Report-only mode =======================================================
     if args.report is not None:
         # Block fuzzing flags from being passed alongside --report
         illegal = []
@@ -440,9 +442,9 @@ def main() -> int:
             print("    Usage: python3 vibefuzzer.py --report <output_dir>")
             return 1
  
-        return _run_report(args.report, args.report_out)
+        return report_gen.run(args.report, args.report_out)
 
-    # Normal fuzzing mode 
+    # Normal fuzzing mode ======================================================
     if not args.target_dir:
         print("[!] target_dir is required unless --report is specified.")
         print("    Run with --help for usage.")
@@ -594,7 +596,7 @@ def main() -> int:
             # 5. Auto-report ===================================================
             if args.auto_report:
                 print("\n=== STAGE: Generating Report ===")
-                _run_report(args.output, args.report_out)
+                report_gen.run(args.output, args.report_out)
 
     except Exception as e:
         print(f"\n[!] Error: {e}")
